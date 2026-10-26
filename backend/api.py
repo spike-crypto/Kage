@@ -500,8 +500,13 @@ def analyze_project(project_id: int, payload: AnalyzeRequest,
             insight_by_index = {i.page_index: i for i in insights}
 
             skipped = [i for i in insights if i.kind != "artwork"]
-            # Roughly how many distinct pages a sequence of this length can use well.
-            wanted = max(3, min(len(insights), project.target_duration // 3))
+            # How many distinct panels this sequence actually needs, from the style's own
+            # pacing. A fixed one-per-three-seconds left Shonen Kinetic - which cuts every
+            # 1.6s - with ten panels for nineteen shots, so half the film was the same
+            # panels a second time. Ask for a shot's worth each, plus slack to choose from.
+            pace = sum(resolve_style(project.style).shot_length) / 2.0
+            needed = int(project.target_duration / max(1.0, pace)) + 2
+            wanted = max(3, min(len(insights), needed))
             keep = {i.page_index for i in select_pages(insights, wanted)}
 
             filtered = [r for r in renderables if r.page_index in keep]
