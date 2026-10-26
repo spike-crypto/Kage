@@ -2,6 +2,9 @@
 
 > **From Ink to Imagination**
 
+**A local manga-to-motion-comic engine.** A deterministic rendering pipeline, with
+computer vision for framing and generative models for narration and animation.
+
 Turn manga pages into cinematic motion comics — panel detection, camera moves with depth
 parallax, visual effects, a synthesised score with timed sound effects, optional AI
 narration, and an MP4 you can preview and download.
@@ -463,20 +466,41 @@ skip automatically when FFmpeg is absent.
 
 ## What is and is not AI
 
-Kage began deterministic and has grown five model-driven steps. Each is optional and each
-degrades to something that still produces a film, so it is worth being exact about which
-is which.
+Kage is not an AI wrapper, and saying so is worth being precise about. It began
+deterministic and has grown six model-driven steps; each is optional, and each degrades to
+something that still produces a film.
+
+```
+deterministic backend   5,722 lines   (78%)
+model-driven backend    1,633 lines   (22%)
+```
+
+Strip every model out and Kage still imports a book, finds panels, frames them, moves a
+camera, grades, scores and renders an MP4. The film gets worse - no page selection, no
+parallax, no narration, no animated shots - but it still exists. That is the test, and
+it is why the description above leads with the engine rather than the models.
+
+The other direction would be just as wrong: the generative parts are real, not
+decorative. A language model genuinely writes the narration and a diffusion model
+genuinely generates video frames.
 
 ### Models, and where they run
+
+**Discriminative** - these judge, they do not create:
 
 | Model | Job | Size | Runs on |
 |---|---|---|---|
 | CLIP ViT-B/32 | ranks pages by artwork, so covers and text pages are skipped | 1.2 GB | your GPU, CPU fallback |
 | Depth Anything V2 Small | depth map for parallax | 99 MB | your GPU, CPU fallback |
-| MMS-TTS eng | speaks the narration | 145 MB | your CPU |
-| A hosted vision model | reads each panel and describes it | — | Gemini / OpenRouter / NVIDIA free tier |
-| A hosted text model | writes one narration line per shot | — | the same chain |
-| Stable Video Diffusion | animates a hero shot | 4.5 GB | Modal, or an HF ZeroGPU Space |
+
+**Generative** - these produce new content:
+
+| Model | Produces | Size | Runs on |
+|---|---|---|---|
+| A hosted vision model | a description of each panel | — | Gemini / OpenRouter / NVIDIA free tier |
+| A hosted text model | one narration line per shot | — | the same chain |
+| MMS-TTS eng | the spoken audio | 145 MB | your CPU |
+| Stable Video Diffusion | animated video frames | 4.5 GB | Modal, or an HF ZeroGPU Space |
 
 Weights download from the Hugging Face hub, which is free and unrelated to its paid
 Inference API. The hosted steps use **two requests per film**, not two per shot, which
