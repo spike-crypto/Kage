@@ -1,0 +1,63 @@
+name: tests
+
+# Testing the project, which is what GitHub-hosted runners are for. Rendering films for
+# users would not be - their terms bar "activity unrelated to the production, testing,
+# deployment, or publication of the software project".
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install FFmpeg
+        # Kage verifies its own output with ffprobe, and several tests render a real
+        # file rather than a mock. Without this they skip, and a skipped render test
+        # tells you nothing.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          ffmpeg -version | head -1
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        # CPU torch on purpose: the CUDA wheel is ~2.5 GB and CI has no GPU, so it
+        # would be a slow download of something that cannot be used.
+        run: |
+          uv venv
+          uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          uv pip install -r requirements.txt
+
+      - name: Check dependency pins
+        # This one earned its place: installing gradio_client once pulled
+        # huggingface-hub past the ceiling transformers pins, and nothing failed until
+        # CLIP stopped loading at runtime.
+        run: uv run pytest tests/test_pipeline.py -q -k "installed_packages or local_model_stack"
+
+      - name: Run the suite
+        env:
+          # No keys in CI. Narration and animation must degrade to "skipped", not fail,
+          # and a green run here proves that path works.
+          KAGE_API: http://127.0.0.1:8000
+        run: uv run pytest tests -q --maxfail=3
+
+      - name: Environment report
+        if: always()
+        run: uv run python scripts/check_environment.py || true
