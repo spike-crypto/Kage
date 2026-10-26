@@ -52,11 +52,23 @@ class VideoCandidate:
         return f"space:{self.space}"
 
 
+def modal_configured() -> bool:
+    return bool(os.environ.get("MODAL_TOKEN_ID") and os.environ.get("MODAL_TOKEN_SECRET"))
+
+
 def chain() -> tuple[VideoCandidate, ...]:
     raw = str(env("ANIMATE_SPACES", "")).strip()
     if raw:
         return tuple(VideoCandidate(s.strip()) for s in raw.split(",") if s.strip())
-    return (VideoCandidate("viperlurk/kage-animator"),)
+    # Modal first when it is set up: a dedicated L4 with cached weights is both faster
+    # and far less rationed than a shared free-tier slice. The Space stays as the
+    # no-card fallback, which is what runs until a payment method is added to Modal.
+    candidates = []
+    if modal_configured():
+        candidates.append(VideoCandidate("modal:kage-gpu/Animator.animate",
+                                         licence="Stability Community (weights)"))
+    candidates.append(VideoCandidate("viperlurk/kage-animator"))
+    return tuple(candidates)
 
 
 class VideoUnavailable(RuntimeError):
@@ -137,6 +149,35 @@ def _call_space(space: str, api_name: str, image_path: Path, payload: list,
     raise RuntimeError("space produced no result")
 
 
+def _call_modal(label: str, image_path: Path, motion: int, steps: int, seed: int,
+                fps: int, project_id: int | None = None) -> bytes:
+    """Run the deployed Modal function and record what the GPU time actually cost.
+
+    The function reports its own GPU seconds rather than Kage timing the round trip:
+    wall-clock includes queueing and cold start, which Modal does not all bill for.
+    """
+    import modal
+
+    from . import routing
+    from .budgets import modal_cost
+
+    _, _, path = label.partition(":")
+    app_name, _, method = path.partition("/")
+    cls_name, _, func_name = method.partition(".")
+
+    remote = modal.Cls.from_name(app_name, cls_name)()
+    result = getattr(remote, func_name).remote(
+        image_path.read_bytes(), motion=motion, steps=steps, seed=seed, fps=fps
+    )
+    seconds = float(result.get("gpu_seconds") or 0.0)
+    gpu = str(result.get("gpu") or "")
+    cost = modal_cost(gpu, seconds)
+    routing.usage(project_id, "Animate", "modal", result.get("model") or app_name,
+                  ok=True, latency=seconds, images=1, cost_usd=cost)
+    log.info("Modal animate: %.1fs on %s = $%.4f", seconds, gpu, cost)
+    return result["video"]
+
+
 def _file_url(item) -> str:
     """Dig the file URL out of a Gradio result.
 
@@ -200,6 +241,17 @@ def animate_panel(image_path: Path, *, motion: int | None = None, seed: int = 0,
         target = next(c for c in candidates if c.label == candidate)
         started = time.perf_counter()
         try:
+            if target.space.startswith("modal:"):
+                cached.write_bytes(
+                    _call_modal(target.space, Path(image_path), motion, steps, seed, fps,
+                                project_id=project_id)
+                )
+                took = time.perf_counter() - started
+                log.info("Animated %s via %s in %.1fs", Path(image_path).name,
+                         target.label, took)
+                routing.record(target.label, "Animate", ok=True, latency=took)
+                return cached
+
             import requests
 
             url = _call_space(target.space, target.api_name, Path(image_path),
