@@ -1,0 +1,70 @@
+# Kage theme. Everything visual lives here rather than in a stylesheet: theme tokens
+# apply consistently to every widget and survive Streamlit upgrades, which hand-written
+# CSS targeting private class names does not.
+#
+# Light and dark are both defined, so the appearance toggle in Settings works and the app
+# follows the reader's own preference instead of forcing one.
+
+[theme]
+font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+codeFont = "'JetBrains Mono':https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap"
+baseRadius = "0.5rem"
+buttonRadius = "0.5rem"
+showWidgetBorder = true
+showSidebarBorder = true
+linkUnderline = false
+headingFontSizes = ["30px", "22px", "18px", "16px", "14px", "13px"]
+headingFontWeights = [600, 600, 600, 600, 500, 500]
+metricValueFontSize = "1.9rem"
+metricValueFontWeight = 600
+paddingTop = "2rem"
+paddingBottom = "3rem"
+
+[theme.light]
+primaryColor = "#4F46E5"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F4F5F8"
+textColor = "#14161C"
+borderColor = "#E3E5EC"
+codeBackgroundColor = "#F4F5F8"
+linkColor = "#4338CA"
+chartCategoricalColors = ["#4F46E5", "#0E7490", "#B45309", "#9D174D", "#15803D", "#6D28D9", "#525866"]
+
+[theme.dark]
+primaryColor = "#6366F1"
+backgroundColor = "#0B0D12"
+secondaryBackgroundColor = "#161922"
+textColor = "#E7EAF2"
+borderColor = "#262B36"
+codeBackgroundColor = "#161922"
+linkColor = "#A5B4FC"
+chartCategoricalColors = ["#818CF8", "#22D3EE", "#FBBF24", "#F472B6", "#4ADE80", "#C084FC", "#94A3B8"]
+
+# The sidebar stays ink-dark in both appearances: it is the app's identity, and holding it
+# constant makes the main canvas read as the page the artwork sits on.
+[theme.sidebar]
+backgroundColor = "#0B0D12"
+secondaryBackgroundColor = "#161922"
+codeBackgroundColor = "#161922"
+textColor = "#E7EAF2"
+borderColor = "#262B36"
+primaryColor = "#6366F1"
+linkColor = "#A5B4FC"
+showWidgetBorder = true
+paddingTop = "1rem"
+
+[theme.light.sidebar]
+backgroundColor = "#0B0D12"
+secondaryBackgroundColor = "#161922"
+textColor = "#E7EAF2"
+borderColor = "#262B36"
+primaryColor = "#6366F1"
+linkColor = "#A5B4FC"
+
+[theme.dark.sidebar]
+backgroundColor = "#080A0E"
+secondaryBackgroundColor = "#14171F"
+textColor = "#E7EAF2"
+borderColor = "#232834"
+primaryColor = "#6366F1"
+linkColor = "#A5B4FC"

@@ -1,0 +1,33 @@
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+*.egg-info/
+
+# App data: generated pages, renders, database, logs
+data/
+assets/audio/sfx/
+tools/bin/
+tools/*.zip
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Source manga. Never commit artwork you do not own the rights to - Kage ships
+# no third-party manga, and a public repo is publication.
+*.cbz
+*.cbr
+*.rar
+*.zip
+Uzumaki*/
+Uzumaki*
+hokusai*
+sample_manga/
