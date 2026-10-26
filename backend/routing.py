@@ -82,7 +82,7 @@ def record(label: str, job: str, ok: bool, latency: float,
 
 def usage(project_id: int | None, job: str, provider: str, model: str, ok: bool,
           latency: float, prompt_tokens: int = 0, completion_tokens: int = 0,
-          images: int = 0, error: str | None = None) -> None:
+          images: int = 0, error: str | None = None, cost_usd: float = 0.0) -> None:
     """Log one hosted request so the app can show what it has spent."""
     try:
         with session_scope() as session:
@@ -91,6 +91,7 @@ def usage(project_id: int | None, job: str, provider: str, model: str, ok: bool,
                 ok=int(bool(ok)), latency_seconds=float(latency),
                 prompt_tokens=int(prompt_tokens), completion_tokens=int(completion_tokens),
                 images=int(images), error=(error or "")[:400] or None,
+                cost_usd=float(cost_usd or 0.0),
             ))
     except Exception as exc:
         log.debug("Could not record usage: %s", exc)

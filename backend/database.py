@@ -83,6 +83,12 @@ def _migrate() -> None:
         if shot_columns and "clip_path" not in shot_columns:
             conn.execute(text("ALTER TABLE shots ADD COLUMN clip_path TEXT"))
 
+        usage_columns = {row[1] for row in conn.execute(text("PRAGMA table_info(usage_events)"))}
+        if usage_columns and "cost_usd" not in usage_columns:
+            conn.execute(text(
+                "ALTER TABLE usage_events ADD COLUMN cost_usd FLOAT DEFAULT 0.0"
+            ))
+
 
 @contextmanager
 def session_scope() -> Iterator[Session]:

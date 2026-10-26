@@ -184,5 +184,8 @@ class UsageEvent(Base):
     prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
     completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
     images: Mapped[int] = mapped_column(Integer, default=0)
+    #: What this call cost, in dollars. Written at call time by the caller that
+    #: knows the rate - a rate table read later would be wrong the day it changes.
+    cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
     error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

@@ -27,6 +27,8 @@ PAGES = [
     "app_pages/shots.py",
     "app_pages/render.py",
     "app_pages/projects.py",
+    "app_pages/settings.py",
+    "app_pages/usage.py",
     "app_pages/diagnostics.py",
 ]
 
@@ -76,6 +78,10 @@ ROUTES = {
     "/api/health": HEALTH,
     "/api/stats": {"projects_total": 1, "projects_completed": 0, "projects_failed": 0,
                    "storage_root": "data/projects", "server_time": "2026-10-23T10:00:00Z"},
+    "/api/usage": {"budgets": [], "history": [], "rates": {"modal_usd_per_second": {}}},
+    "/api/providers": {"providers": [], "order": {"vision": [], "text": []},
+                       "health": [], "usage": [], "totals": {},
+                       "requests_per_film": {"images_per_request": 12}},
     "/api/logs": {"source": "memory", "count": 1, "error_count": 0, "warning_count": 1,
                   "log_files": {"main": "main.log", "errors": "errors.log"},
                   "records": [{"time": "2026-10-23T10:00:00+00:00", "level": "WARNING",

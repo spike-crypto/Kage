@@ -38,6 +38,7 @@ PAGES = {
     "Studio": [
         st.Page("app_pages/projects.py", title="Projects", icon=":material/folder:"),
         st.Page("app_pages/settings.py", title="Providers", icon=":material/key:"),
+        st.Page("app_pages/usage.py", title="Usage", icon=":material/monitoring:"),
         st.Page("app_pages/diagnostics.py", title="Diagnostics",
                 icon=":material/monitor_heart:"),
     ],

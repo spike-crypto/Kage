@@ -1098,6 +1098,22 @@ def reset_routing() -> dict:
     return {"status": "reset"}
 
 
+@app.get("/api/usage")
+def usage_report(days: int = 14) -> dict:
+    """Spend against each free tier, plus a per-day trend.
+
+    This is Kage's own tally of what it sent, not the vendor's billing. If the same key
+    is used elsewhere the real figure is higher - it is a smoke alarm, not an invoice.
+    """
+    from . import budgets
+
+    return {
+        "budgets": budgets.report(),
+        "history": budgets.history(days=max(1, min(int(days), 90))),
+        "rates": {"modal_usd_per_second": budgets.MODAL_GPU_RATES},
+    }
+
+
 @app.get("/api/logs")
 def get_logs(limit: int = 100, level: str = "DEBUG", source: str = "buffer") -> dict:
     """Recent log records, newest first.
