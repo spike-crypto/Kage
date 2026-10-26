@@ -2,8 +2,13 @@
 
 > **From Ink to Imagination**
 
-**A local manga-to-motion-comic engine.** A deterministic rendering pipeline, with
-computer vision for framing and generative models for narration and animation.
+**A generative AI application for manga.** Vision models read the artwork, a language
+model writes the narration, text-to-speech voices it, and a diffusion model animates key
+shots.
+
+They sit on a deterministic engine: panel detection, camera paths, framing, colour grade
+and a synthesised score, none of which involve a model at all. Remove every model and
+Kage still renders a film — see [what is and is not AI](#what-is-and-is-not-ai).
 
 Turn manga pages into cinematic motion comics — panel detection, camera moves with depth
 parallax, visual effects, a synthesised score with timed sound effects, optional AI
