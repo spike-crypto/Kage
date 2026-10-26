@@ -51,6 +51,11 @@ class StylePreset:
 
     # Accents are deliberately rare.
     framing: float = 1.6   # >1 crops in toward the drawing instead of showing the page
+    #: How far near pixels travel relative to far ones, as a fraction of frame width.
+    #: This is the depth illusion; it is what makes a panel a space rather than a picture.
+    parallax: float = 0.020
+    #: Idle displacement so a held shot keeps breathing instead of freezing.
+    drift: float = 0.004
     max_effects: int = 1
     accent_effects: tuple[str, ...] = ()
     accent_every: int = 3          # spend an accent on every Nth shot
@@ -88,6 +93,7 @@ STYLE_PRESETS: dict[str, StylePreset] = {
             exposure=0.86, vignette=0.52, grain=0.20, contrast=1.22, saturation=0.08,
             tint=(0.97, 0.99, 1.09), bloom=0.10, lift=0.015, colour_floor=0.34,
         ),
+        parallax=0.024, drift=0.005,
         framing=1.95,
         max_effects=1,
         accent_effects=("impact_flash",),
@@ -112,6 +118,7 @@ STYLE_PRESETS: dict[str, StylePreset] = {
             vignette=0.28, grain=0.08, contrast=1.16, saturation=1.12,
             tint=(1.02, 1.0, 0.99), bloom=0.06,
         ),
+        parallax=0.034, drift=0.006,
         framing=1.75,
         max_effects=2,
         accent_effects=("speed_lines", "screen_shake", "impact_flash"),
@@ -137,6 +144,7 @@ STYLE_PRESETS: dict[str, StylePreset] = {
             exposure=1.02, vignette=0.34, grain=0.10, contrast=0.96, saturation=1.06,
             tint=(1.07, 1.00, 0.93), bloom=0.30, lift=0.03,
         ),
+        parallax=0.018, drift=0.007,
         framing=1.55,
         max_effects=1,
         accent_effects=("particles",),
@@ -162,6 +170,7 @@ STYLE_PRESETS: dict[str, StylePreset] = {
             exposure=0.92, vignette=0.44, grain=0.18, contrast=1.10, saturation=0.40,
             tint=(0.88, 0.97, 1.14), bloom=0.04, lift=0.035, colour_floor=0.55,
         ),
+        parallax=0.014, drift=0.003,
         framing=1.35,
         max_effects=1,
         accent_effects=("rain",),
@@ -186,6 +195,7 @@ STYLE_PRESETS: dict[str, StylePreset] = {
             exposure=0.93, vignette=0.50, grain=0.30, contrast=1.14, saturation=0.86,
             tint=(1.07, 1.00, 0.88), bloom=0.14, lift=0.045, colour_floor=0.86,
         ),
+        parallax=0.022, drift=0.006,
         framing=1.65,
         max_effects=1,
         accent_effects=("film_grain",),

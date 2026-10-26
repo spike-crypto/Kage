@@ -132,6 +132,10 @@ class ShotRenderer:
     seed: int = 0
     grade: GradeSpec | None = None
     framing: float = 1.0   # >1 crops in toward the subject instead of showing the page
+    #: Depth-driven parallax and idle drift. These are what actually animate the artwork
+    #: rather than only moving a crop around it; see backend/animation.py.
+    parallax: float = 0.0
+    drift: float = 0.0
 
     def __post_init__(self) -> None:
         self._source = self._load_source()
@@ -149,6 +153,19 @@ class ShotRenderer:
         grain = self._grade.grain + (0.18 if "film_grain" in self.effects else 0.0)
         self._grain_amount = min(1.0, grain)
         self._grain_bank = self._make_grain_bank() if self._grain_amount > 0.01 else None
+        self._warp = self._build_warp()
+
+    def _build_warp(self):
+        """Depth parallax + drift for this shot, or a no-op when neither is wanted."""
+        from .animation import Warp, depth_for
+
+        if self.parallax <= 0.0 and self.drift <= 0.0:
+            return Warp(self.out_width, self.out_height, None, seed=self.seed)
+        depth = depth_for(self.image_path) if self.parallax > 0.0 else None
+        return Warp(
+            self.out_width, self.out_height, depth,
+            parallax=self.parallax, drift=self.drift, seed=self.seed,
+        )
 
     # ---- source preparation
 
@@ -278,6 +295,15 @@ class ShotRenderer:
         level = float(np.median(gray))
         floor_level = float(np.percentile(gray, 2))
         ink = (gray < level - max(12.0, (level - floor_level) * 0.30)).astype(np.float32)
+
+        # Weight by local detail. A panel flooded with black is entirely "ink" and holds
+        # no picture; scoring by ink mass alone sent the camera to sit on it. Edge energy
+        # asks "is anything drawn here", which is the actual question.
+        edges = cv2.Laplacian(gray.astype(np.float32), cv2.CV_32F, ksize=3)
+        detail = cv2.GaussianBlur(np.abs(edges), (0, 0), 1.5)
+        peak = float(detail.max())
+        if peak > 1e-6:
+            ink = ink * (0.25 + 0.75 * (detail / peak))
         if ink.sum() < 8:
             return centre, whole
 
@@ -620,6 +646,11 @@ class ShotRenderer:
         total = self.frame_count(duration_seconds)
         src_h, src_w = self._source.shape[:2]
         self._travel = self._travel_scale(duration_seconds)
+        # Which way the camera is going, so parallax leans the same way it does.
+        travel = (
+            float(np.clip(self._path.cx_end - self._path.cx_start, -1.0, 1.0)),
+            float(np.clip(self._path.cy_end - self._path.cy_start, -1.0, 1.0)),
+        )
 
         for i in range(total):
             t = i / float(total - 1) if total > 1 else 0.0
@@ -639,6 +670,8 @@ class ShotRenderer:
             )
 
             frame = warped.astype(np.float32)
+            if self._warp.active:
+                frame = self._warp.apply(frame, t, travel)
             frame = self._apply_motion_blur(frame, t)
             frame = self._apply_grade(frame)
             frame = self._apply_speed_lines(frame, t)

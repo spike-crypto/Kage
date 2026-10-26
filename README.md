@@ -227,6 +227,28 @@ Cold at 1.35 (observational). That number is expressed relative to a whole sheet
 clamped per source: since pages are split at import, applying it unclamped to a half-size
 page crops twice as tight and the shot lands on a fragment of a sleeve.
 
+### Animation
+
+Kage moves the artwork, not only a camera over it. Two techniques, both of which run on a
+4 GB card and neither of which needs a diffusion model:
+
+- **Parallax.** A depth model (Depth Anything V2 Small, Apache-2.0, ~100 MB) estimates how
+  far away each pixel is, and the frame is resampled so near things travel further than
+  far ones. Depth is anchored at the *far* plane, so the background holds still and the
+  foreground slides across it - centring on the median instead produces a stereo wobble
+  rather than a camera move. Measured: 0.3s per panel, 108 MB of VRAM.
+- **Drift.** A slow low-frequency displacement field on top, so hair, cloth and smoke keep
+  moving while a shot holds. No model at all - two sine waves and a noise field.
+
+Both are `cv2.remap` passes at output resolution, about a millisecond a frame. Depth is
+computed once per panel at analysis time and cached beside it, so rendering never waits on
+a model. Each style sets its own amounts, from Shonen Kinetic at 0.034 to Seinen Cold at
+0.014.
+
+**What this is not.** No frame is drawn, no character is animated, no in-betweens exist.
+Kage is a motion comic engine: it makes your artwork move, it does not generate new
+artwork. Image-to-video diffusion needs 8-12 GB of VRAM, which this does not assume.
+
 ### Voiceover
 
 Optional narration, written from what a model actually sees on the pages and spoken over

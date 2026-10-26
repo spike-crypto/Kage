@@ -281,6 +281,8 @@ def iter_output_frames(spec: RenderSpec, entries: list[TimelineEntry], total_fra
             seed=entry.shot.sequence_number * 17 + 3,
             grade=_preset.grade,
             framing=_preset.framing,
+            parallax=_preset.parallax,
+            drift=_preset.drift,
         )
         frames = renderer.iter_frames(entry.shot.duration_seconds)
 

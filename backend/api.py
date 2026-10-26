@@ -447,7 +447,26 @@ def analyze_project(project_id: int, payload: AnalyzeRequest,
                     renderables.append(row)
             else:
                 renderables.append(page)
-        if not segmented_any:
+        if segmented_any:
+            # Never mix granularity. A whole page holds four to six panels, gutters and
+            # speech bubbles at once and reads as a contact sheet; cutting between that
+            # and a single panel makes the film keep changing scale. Once any page has
+            # segmented, only panels are filmed.
+            panels_only = [r for r in renderables if r.kind == "panel"]
+            dropped = len(renderables) - len(panels_only)
+            # Only when there are enough panels to carry the film. Segmentation that
+            # succeeded on two pages out of nineteen must not throw the other seventeen
+            # away - that films the same two panels on a loop, which is worse than mixed
+            # granularity. Needs roughly a panel per shot, plus slack to choose from.
+            wanted_shots = max(4, int(project.target_duration // 4))
+            if len(panels_only) >= max(6, wanted_shots):
+                renderables = panels_only
+                if dropped:
+                    warnings.append(
+                        f"Filming {len(panels_only)} panels; {dropped} page(s) that did "
+                        "not segment were left out so every shot is one panel."
+                    )
+        else:
             warnings.append(
                 "Panel detection did not find a confident layout on any page; "
                 "using whole pages instead."
@@ -603,6 +622,20 @@ def analyze_project(project_id: int, payload: AnalyzeRequest,
         except Exception as exc:
             warnings.append(f"Narration skipped: {exc}")
             log.warning("Project %s narration unavailable: %s", project.id, exc)
+
+    # Depth for parallax, computed now and cached beside each panel, so the renderer
+    # never waits on a model. This is what lets the artwork itself move.
+    try:
+        from . import animation
+
+        warmed = animation.precompute(
+            [Path(row.source_panel_path) for row in created.values()]
+        )
+        log.info("Project %s depth cached for %d/%d shots",
+                 project.id, warmed, len(created))
+    except Exception as exc:
+        log.warning("Project %s depth unavailable, shots will not parallax: %s",
+                    project.id, exc)
 
     project.panel_count = len([r for r in renderables if r.kind == "panel"])
     project.planner_source = plan.source
