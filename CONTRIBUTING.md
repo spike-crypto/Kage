@@ -2,6 +2,16 @@
 
 Thanks for looking. Kage turns manga artwork into cinematic motion comics, locally.
 
+**Everyone is welcome here.** This was built for people who love manga and anime and want
+to see these stories move, and it stays open to anyone who wants to help — no invitation,
+no experience bar, no gatekeeping. You do not have to be a Python developer to be useful:
+knowing how a scene should be cut, or noticing that a shot lands wrong, is worth as much
+as code. Open an issue, send a pull request, or just say what you would change.
+
+Everything here is measured and written down, so you can see why a decision was made
+before you change it. If you disagree with one, bring a measurement and change it — that
+is the whole bar.
+
 ## Ground rules
 
 Read [ENGINEERING.md](ENGINEERING.md) first. Every rule in it exists because it was broken

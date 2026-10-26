@@ -6,6 +6,12 @@ Turn manga pages into cinematic motion comics — panel detection, camera moves 
 parallax, visual effects, a synthesised score with timed sound effects, optional AI
 narration, and an MP4 you can preview and download.
 
+**Open to everyone.** Kage is open source and anyone is welcome to work on it — whether
+you write Python, understand how a scene should be cut, or just know when a shot feels
+wrong. Made for people who love manga and anime and want to see these stories move.
+Start with [CONTRIBUTING.md](CONTRIBUTING.md), or see [ROADMAP.md](ROADMAP.md) for what
+needs doing most. No invitation needed.
+
 ```
 PDF / images  ->  trim + split  ->  pages & panels  ->  shot plan  ->  frames + effects  ->  score  ->  MP4
 ```
