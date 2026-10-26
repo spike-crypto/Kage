@@ -2,14 +2,27 @@
 
 > **From Ink to Imagination**
 
-Turn manga pages into cinematic anime-style motion comics — camera moves, visual effects,
-a synthesised score with timed sound effects, optional burned-in subtitles, and an MP4 you
-can preview and download. Everything runs locally on CPU. No GPU, no paid API, no model
-weights to download.
+Turn manga pages into cinematic motion comics — panel detection, camera moves with depth
+parallax, visual effects, a synthesised score with timed sound effects, optional AI
+narration, and an MP4 you can preview and download.
 
 ```
 PDF / images  ->  trim + split  ->  pages & panels  ->  shot plan  ->  frames + effects  ->  score  ->  MP4
 ```
+
+**What it needs.** The core pipeline — import, framing, camera, grade, score, render — is
+deterministic and runs on CPU with no model and no network. Three things go beyond that,
+and each is optional:
+
+| | Runs on | Needed for | Without it |
+|---|---|---|---|
+| CLIP + Depth Anything V2 Small | your GPU (CPU fallback), **1.3 GB downloaded** | choosing pages, depth parallax | pages used in reading order, no parallax |
+| A hosted vision/text model | **free tier of Gemini, OpenRouter or NVIDIA** | narration | no voiceover |
+| Image-to-video | a GPU elsewhere — Modal or an HF ZeroGPU Space | animated hero shots | parallax carries every shot |
+
+So: it renders offline on a CPU, and it is better with a GPU, ~1.3 GB of weights and one
+free API key. Earlier versions of this file claimed "no GPU, no paid API, no model weights"
+— that was true once and stopped being true as the above was added.
 
 ---
 
@@ -20,13 +33,22 @@ PDF / images  ->  trim + split  ->  pages & panels  ->  shot plan  ->  frames + 
 | Python 3.11+ | 3.12 recommended (this build was verified on 3.12.12) |
 | FFmpeg + ffprobe | Needed for encoding and verification |
 | ~500 MB free disk | Per-project pages, frames and output |
+| +1.4 GB if you use the vision models | Measured: CLIP 1.2 GB, Depth Anything V2 Small 99 MB, the voice 145 MB |
 
-Optional:
+Optional, and each degrades gracefully:
 
-- **Tesseract OCR** + `pytesseract` — enables subtitle extraction from speech bubbles.
-  Without it, subtitles are simply skipped.
-- **`HF_TOKEN`** — enables the hosted LLM shot director. Without it, the deterministic
-  local planner is used and everything still works.
+- **`torch` + `transformers`** — page selection (CLIP) and depth parallax. Uses a GPU when
+  one is present and falls back to CPU. Without them, pages are filmed in reading order
+  and shots get no parallax.
+- **One free inference key** — `GEMINI_API_KEY`, `OPENROUTER_API_KEY` or `NVIDIA_API_KEY`
+  for narration. A provider with no key is skipped, never failed. Without any, the film
+  is silent of voice but still scored.
+- **`MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET`**, or a Hugging Face ZeroGPU Space — animated
+  hero shots. Without either, depth parallax carries every shot.
+- **Tesseract OCR** + `pytesseract` — subtitle extraction from speech bubbles. Without it,
+  subtitles are skipped.
+- **`HF_TOKEN`** — downloading model weights, and calling a ZeroGPU Space. Not needed for
+  the hosted narration providers above.
 
 ### FFmpeg
 
@@ -412,55 +434,80 @@ skip automatically when FFmpeg is absent.
 
 ## Known limitations
 
-- **This is a motion comic, not generated animation.** Original artwork is preserved and
-  moved cinematically; characters do not move within a panel. Image-to-video character
-  animation is a roadmap item, not a current feature.
+- **This is a motion comic, not generated animation.** Your artwork is preserved and
+  moved; no character moves within a panel. Image-to-video adds generated camera motion
+  through a scene, not in-betweens or redrawn cels.
 - **Panel detection is best-effort.** It only accepts confident, mostly-rectangular
-  layouts. Bleeds, overlaps and diagonal gutters fall back to whole pages by design.
-- **The score is synthesised, not composed.** It is mood-appropriate and mixed carefully,
-  but it is procedural audio, not a licensed soundtrack.
-- **OCR and the hosted director are optional**, and were not exercised in this build — no
-  Tesseract binary and no `HF_TOKEN` were present. Both paths fall back cleanly.
-- **Narration/TTS** has a mix track reserved but no voice synthesiser wired in.
-- **One render at a time**, single machine, no queue or cloud rendering.
+  layouts. Bleeds, overlaps and diagonal gutters fall back to whole pages. Measured on a
+  Junji Ito volume: 61 panels from 42 pages, with several pages returning one blob
+  covering 96% of the sheet. This is the biggest open problem.
+- **The score is synthesised, not composed.** Procedural audio, mixed carefully, but not
+  a licensed soundtrack.
+- **Narration is only as right as the captioner.** It describes what a vision model
+  reported seeing, and that model is sometimes wrong — a Hokusai garden came back as "a
+  man on a horse". Editable in the shot table for this reason.
+- **The voice is non-commercial.** `facebook/mms-tts-eng` is CC-BY-NC-4.0 and adds about
+  18s to a render. Fine for portfolio; a blocker for commercial use.
+- **OCR is still unexercised.** No Tesseract binary has been present in any build so far,
+  so subtitles fall back cleanly but have never actually run.
+- **Animation is rationed.** A free ZeroGPU account allows very few calls a day, and
+  Modal requires a payment method for any GPU. Shots that cannot be animated keep their
+  still and the render completes.
+- **One render at a time**, single machine, no queue.
 
 ## What is and is not AI
 
-**One model, running locally: CLIP ViT-B/32** (~600 MB, MIT licence). It is the only place
-a neural network touches your artwork. Each page is scored zero-shot against short English
-descriptions, which answers three questions:
+Kage began deterministic and has grown five model-driven steps. Each is optional and each
+degrades to something that still produces a film, so it is worth being exact about which
+is which.
 
-| Question | Used for |
-|---|---|
-| Is this artwork, prose text, a cover or blank? | Skipping pages not worth filming |
-| What is on it - face, duo, crowd, scenery, creature? | Choosing the camera move and framing |
-| Is the scene calm or active? | Shot length: action is held for less time |
+### Models, and where they run
 
-Weights download once from the Hugging Face hub. **That is free** and unrelated to the paid
-Inference API - nothing here calls a hosted endpoint. Install with:
+| Model | Job | Size | Runs on |
+|---|---|---|---|
+| CLIP ViT-B/32 | ranks pages by artwork, so covers and text pages are skipped | 1.2 GB | your GPU, CPU fallback |
+| Depth Anything V2 Small | depth map for parallax | 99 MB | your GPU, CPU fallback |
+| MMS-TTS eng | speaks the narration | 145 MB | your CPU |
+| A hosted vision model | reads each panel and describes it | — | Gemini / OpenRouter / NVIDIA free tier |
+| A hosted text model | writes one narration line per shot | — | the same chain |
+| Stable Video Diffusion | animates a hero shot | 4.5 GB | Modal, or an HF ZeroGPU Space |
 
-```powershell
-uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
-uv pip install transformers
-```
+Weights download from the Hugging Face hub, which is free and unrelated to its paid
+Inference API. The hosted steps use **two requests per film**, not two per shot, which
+sits inside every free tier Kage supports.
 
-Without it, Kage still runs: pages are used in reading order and the sidebar shows
-`Vision` as unavailable.
+### What stays deterministic
 
-**Everything else remains deterministic** - style presets, seeded shot selection,
-procedural audio, OpenCV subject framing and panel segmentation. That is a design choice,
-not a limitation: it keeps renders fast and reproducible.
+Style presets, shot selection, panel segmentation, the camera paths, framing, the colour
+grade, every visual effect, the whole score and the render itself. No model touches any of
+them. That is why a render is reproducible and fast.
 
-A hosted-LLM director also exists behind `HF_TOKEN`, but Hugging Face removed free-account
-inference credits on 2026-10-07, so free tokens return `402 Payment Required` and the local
-planner handles every plan.
+### What the models are not allowed to do
 
-### Why not a bigger model?
+**Invent.** Narration is written only from what a vision model reported seeing, with a
+prompt that forbids adding weather, lighting, emotion or action, and greedy decoding so it
+does not drift. This was measured: asked for "cinematic narration" the same model turned
+*"a group of people in a room"* into *"the lights flicker, casting shadows across faces"* —
+every image fabricated. Subtitles are only ever text OCR actually read from the page.
 
-Character *animation* (AnimateDiff, Stable Video Diffusion) needs 8-12 GB of VRAM. On a
-4 GB card it either runs out of memory or takes hours per clip. Kage produces a
-**cinematic motion comic** - your artwork, framed and moved like film - not generated
-character motion. That distinction is deliberate and honest.
+Narration is still only as right as the captioner, which is why it is editable in the shot
+table. On a Hokusai volume one page of stone lanterns came back as "a man on a horse".
+
+### What none of it does
+
+**No frame is drawn.** Parallax and drift move your artwork; image-to-video generates
+camera motion through a scene. Neither animates a character — there are no in-betweens and
+no redrawn cels. Kage is a motion comic engine: it makes your artwork move, it does not
+make new artwork.
+
+### Why the video model runs elsewhere
+
+Stable Video Diffusion needs more VRAM than the 4 GB card this was built on, so it runs
+on a GPU elsewhere and the clip comes back — see `modal_app/`. Everything else is small
+enough to stay local: CLIP, depth and the voice are 1.4 GB together.
+
+Even with it, Kage produces a **motion comic** — your artwork, framed and moved like film
+— not generated character motion. That distinction is deliberate.
 
 ## Licensing
 

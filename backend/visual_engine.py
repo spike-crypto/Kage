@@ -3,8 +3,12 @@
 Every shot is a time-based camera move over the source image: the crop rectangle is
 interpolated with eased curves and resampled once per frame with a sub-pixel affine
 warp, so motion is smooth rather than a series of integer jumps. Effects are layered on
-top of the warped frame. Frames are yielded one at a time (CPU only, no GPU, no
-full-resolution frame buffer held in memory).
+top of the warped frame. Frames are yielded one at a time, so no full-resolution frame
+buffer is ever held in memory.
+
+The warping, grading and effects here are all OpenCV on the CPU. The depth map that
+drives parallax is not: it comes from a model (see animation.py), computed once per panel
+at analysis time and cached, so rendering still never waits on a GPU.
 """
 
 from __future__ import annotations
