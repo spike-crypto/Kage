@@ -79,14 +79,20 @@ of hero shots and leaves depth parallax to carry the rest. Options, in order of 
 
 ## 5. Character motion
 
-Parallax and drift move the artwork, but no character ever moves within a panel: no
-in-betweens, no redrawn cels. Real character animation needs image-to-video diffusion at
-8–12 GB of VRAM, which Kage does not assume. Checked October 2026: Cloudflare Workers AI
-has no video model (73 models, text-to-image and TTS only), and Hugging Face Inference
-Providers bill through one router that returns 402 without credit.
+Even with image-to-video, no character is drawn walking. SVD moves the *image*; it does
+not know a figure has limbs. It produces camera motion and parallax through a scene, not
+in-betweens or redrawn cels. That gap is inherent to image-conditioned video models, and
+closing it needs a different class of model entirely.
 
-If a free or cheap image-to-video endpoint appears, it belongs in the existing
-`backend/providers.py` chain, not as a special case.
+Routes ruled out, October 2026. Cloudflare Workers AI has no video model at all: 73
+models, text-to-image and TTS only. Hugging Face Inference Providers bill through one
+router that returns 402 without credit. Google Colab is not usable either, however well a
+tunnel would work: its own FAQ bans connecting to remote proxies on every managed
+runtime, bans bypassing the notebook UI on free ones, and names web-UI content generation
+as a common cause of free-tier termination.
+
+If a better image-to-video endpoint appears, it belongs in the existing chain in
+backend/video_providers.py, not as a special case.
 
 ## 6. Hosted voice
 
