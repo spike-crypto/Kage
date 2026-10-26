@@ -31,3 +31,6 @@ Uzumaki*/
 Uzumaki*
 hokusai*
 sample_manga/
+
+# Packaged builds
+dist/

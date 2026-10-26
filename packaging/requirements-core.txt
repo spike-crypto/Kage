@@ -1,0 +1,19 @@
+# What ships in the packaged app: everything needed to import artwork, plan shots,
+# render and score a film. Measured at ~322 MB installed.
+#
+# torch and transformers are deliberately absent. They are 4.3 GB, and Kage runs
+# without them - pages are filmed in reading order and shots get no depth parallax.
+# The app offers the download when a feature needs it, rather than making every user
+# pay for it up front.
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
+streamlit>=1.36
+sqlalchemy>=2.0
+pydantic>=2.7
+pillow>=10.3
+numpy>=1.26
+opencv-python-headless>=4.9
+pymupdf>=1.24
+requests>=2.32
+pandas>=2.0
