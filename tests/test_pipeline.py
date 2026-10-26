@@ -343,13 +343,19 @@ def test_render_reports_missing_artwork_clearly(tmp_path):
 # ----------------------------------------------------------------- routing
 
 
+#: Labels the routing tests invent. Scoped so the suite never deletes real
+#: measurements from the developer's own database, which it shares.
+TEST_LABELS = ["prov:model", "fast-flaky", "slow-solid", "good", "broken",
+               "never-tried", "quick", "slow"]
+
+
 @pytest.fixture
 def clean_routing():
     from backend import routing
 
-    routing.reset()
+    routing.reset(TEST_LABELS)
     yield routing
-    routing.reset()
+    routing.reset(TEST_LABELS)
 
 
 def test_routing_counts_from_zero_on_a_new_endpoint(clean_routing):

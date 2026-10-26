@@ -190,11 +190,18 @@ def health(labels: list[str] | None = None) -> list[dict]:
         return []
 
 
-def reset() -> None:
-    """Forget everything learned. Used when keys change or a provider is fixed."""
+def reset(labels: list[str] | None = None) -> None:
+    """Forget what was learned, for ``labels`` or for everything.
+
+    Pass labels to forget only those: a caller that is not the user asking to start over
+    - a test, say - must not wipe real measurements it did not make.
+    """
     try:
         with session_scope() as session:
-            for stat in session.scalars(select(ProviderStat)).all():
+            query = select(ProviderStat)
+            if labels is not None:
+                query = query.where(ProviderStat.label.in_(labels))
+            for stat in session.scalars(query).all():
                 session.delete(stat)
     except Exception as exc:
         log.debug("Could not reset routing stats: %s", exc)
