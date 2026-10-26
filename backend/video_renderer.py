@@ -460,11 +460,11 @@ def render(spec: RenderSpec, progress_cb: ProgressCallback | None = None) -> Ren
                 break
             written += 1
     finally:
-        try:
-            if process.stdin:
-                process.stdin.close()
-        except (BrokenPipeError, OSError):
-            pass
+        # communicate() flushes and closes stdin itself, which is also how FFmpeg is
+        # told the frames have ended. Closing it here first made that flush raise
+        # ValueError on POSIX, where it is guarded against a broken pipe but not an
+        # already-closed one. Windows takes a threaded path and never hit it, so this
+        # only surfaced once the suite ran on Linux.
         stdout, stderr = process.communicate(timeout=600)
 
     stderr_text = (stderr or b"").decode("utf-8", "replace").strip()
