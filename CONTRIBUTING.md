@@ -4,6 +4,9 @@ Thanks for looking. Kage turns manga artwork into cinematic motion comics, local
 
 ## Ground rules
 
+Read [ENGINEERING.md](ENGINEERING.md) first. Every rule in it exists because it was broken
+once here and cost something real, and several are enforced by tests.
+
 **Never commit artwork you do not own.** Kage ships no third-party manga, and a public
 repo is publication. `.gitignore` already excludes `*.cbz`, `*.cbr`, `*.rar` and common
 scan folder names — keep your source material outside the repo directory entirely, not

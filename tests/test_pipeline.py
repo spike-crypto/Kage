@@ -362,6 +362,74 @@ def test_uploading_again_replaces_the_previous_import(client, artwork):
     assert detail["page_count"] == len(pages), "page_count must match the rows that exist"
 
 
+# -------------------------------------------------------------- environment
+
+
+def test_installed_packages_have_consistent_requirements():
+    """No installed package may have its pins violated by another.
+
+    Regression: installing gradio_client pulled huggingface-hub from 0.36 to 2.3, while
+    transformers pins <1.0. Nothing failed at install time - CLIP, depth estimation and
+    narration simply stopped loading at runtime, and an unrelated check happened to
+    notice. A dependency that breaks the local pipeline is not worth what it buys.
+
+    Done in plain Python rather than `pip check`: the project's venv is made by uv and
+    has no pip in it, so a test shelling out to pip would quietly never run.
+    """
+    from importlib.metadata import distributions
+
+    packaging = pytest.importorskip("packaging")
+    from packaging.requirements import Requirement
+    from packaging.version import InvalidVersion, Version
+
+    installed = {}
+    for dist in distributions():
+        name = (dist.metadata["Name"] or "").lower().replace("_", "-")
+        if name:
+            installed[name] = dist.version
+    del packaging
+
+    conflicts = []
+    for dist in distributions():
+        owner = dist.metadata["Name"] or "?"
+        for raw in dist.requires or []:
+            try:
+                requirement = Requirement(raw)
+            except Exception:
+                continue
+            if requirement.marker is not None and not requirement.marker.evaluate():
+                continue        # an extra or a platform we are not on
+            have = installed.get(requirement.name.lower().replace("_", "-"))
+            if have is None or not requirement.specifier:
+                continue
+            try:
+                if not requirement.specifier.contains(Version(have), prereleases=True):
+                    conflicts.append(f"{owner} needs {raw}, found {have}")
+            except InvalidVersion:
+                continue
+
+    assert not conflicts, "conflicting requirements:\n  " + "\n  ".join(conflicts)
+
+
+def test_the_local_model_stack_still_imports():
+    """The three local models must load, not merely be installed.
+
+    `pip check` passes for a package that imports but raises on use, so this exercises
+    the import path each model actually takes.
+    """
+    pytest.importorskip("torch")
+    pytest.importorskip("transformers")
+
+    import transformers
+    from huggingface_hub import __version__ as hub_version
+
+    assert transformers.__version__, "transformers must be importable"
+    major = int(hub_version.split(".")[0])
+    assert major < 1, (
+        f"huggingface-hub {hub_version} breaks transformers, which pins <1.0"
+    )
+
+
 # ------------------------------------------------------------- concurrency
 
 
