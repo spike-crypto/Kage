@@ -290,14 +290,21 @@ def analyse_pages(paths: list[Path], page_indices: list[int] | None = None,
     return insights
 
 
-def select_pages(insights: list[PageInsight], wanted: int,
-                 min_score: float = 0.01) -> list[PageInsight]:
-    """Pick the best pages to film, keeping reading order.
+def select_pages(insights: list[PageInsight], wanted: int, min_score: float = 0.01,
+                 continuous: bool = True) -> list[PageInsight]:
+    """Pick what to film.
 
-    Selection is purely by rank. Measured on a real woodblock volume whose pages mix art
-    and calligraphy, hard classification scored 5/14, while the top 8 pages by artwork
-    affinity were 8/8 correct. So this ranks and takes the top N, and only uses the
-    absolute score to drop pages with essentially zero artwork signal.
+    Scoring is by artwork affinity: measured on a real woodblock volume whose pages mix
+    art and calligraphy, hard classification scored 5/14, while the top 8 pages by
+    artwork affinity were 8/8 correct. So pages are ranked, never argmax-classified, and
+    the absolute score is only used to drop pages with essentially no artwork signal.
+
+    *Which* of the good pages to use is a different question. Taking the highest-scoring
+    N across a whole volume picks the prettiest panels from pages 6, 15, 25, 31 and 41 -
+    every one a good frame, and together no story at all, because consecutive shots come
+    from scenes half a book apart. With ``continuous`` the best *run* is taken instead:
+    the window of consecutive usable panels with the strongest mean score. The result is
+    one scene, in order, which is what reads as a sequence rather than a gallery.
     """
     if not insights:
         return []
@@ -307,6 +314,16 @@ def select_pages(insights: list[PageInsight], wanted: int,
     if len(usable) < 2:
         usable = ranked[: max(2, min(wanted, len(ranked)))]
 
-    chosen = usable[:wanted]
-    # Restore reading order so the sequence still follows the story.
-    return sorted(chosen, key=lambda i: i.page_index)
+    if not continuous or wanted >= len(usable):
+        return sorted(usable[:wanted], key=lambda i: i.page_index)
+
+    # Reading order, junk already removed, so a "run" skips over pages of pure text
+    # without treating them as a break in the scene.
+    in_order = sorted(usable, key=lambda i: i.page_index)
+    best_start, best_mean = 0, -1.0
+    for start in range(0, len(in_order) - wanted + 1):
+        window = in_order[start : start + wanted]
+        mean = sum(i.score for i in window) / wanted
+        if mean > best_mean:
+            best_start, best_mean = start, mean
+    return in_order[best_start : best_start + wanted]

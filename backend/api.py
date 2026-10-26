@@ -474,7 +474,12 @@ def analyze_project(project_id: int, payload: AnalyzeRequest,
     else:
         renderables = list(chosen)
 
-    session.flush()
+    # Commit the page and panel rows now. Everything after this point runs models -
+    # segmentation, OCR, CLIP, then the narration chain - which on a long book is
+    # minutes. SQLite serialises writers, so holding this transaction open across that
+    # work blocks every other write in the app: a project rename from the UI during an
+    # analyse failed with "database is locked" after waiting the full 30s timeout.
+    session.commit()
 
     # Optional OCR for subtitles.
     include_subtitles = bool(payload.extract_subtitles and project.subtitles_enabled)
@@ -592,7 +597,8 @@ def analyze_project(project_id: int, payload: AnalyzeRequest,
         # nothing and every line is dropped.
         created[n] = row
 
-    session.flush()
+    # Shots are safe on disk before the narration models run, for the same reason.
+    session.commit()
 
     # --- the voiceover -----------------------------------------------------
     # Narration is written here, not at render time: a model reading every page is far

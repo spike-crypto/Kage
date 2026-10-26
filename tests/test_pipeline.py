@@ -340,6 +340,113 @@ def test_render_reports_missing_artwork_clearly(tmp_path):
 # ------------------------------------------------------------ api workflow
 
 
+# ------------------------------------------------------------- concurrency
+
+
+@needs_ffmpeg
+def test_the_app_stays_writable_while_an_analysis_runs(client, artwork, monkeypatch):
+    """A slow analysis must not lock the database against the rest of the app.
+
+    Context: analyze used to flush its page and shot rows and then run segmentation, OCR,
+    CLIP and the narration chain - minutes on a real book - before committing. SQLite
+    serialises writers, so renaming a project from the UI during an analysis failed with
+    "database is locked" after waiting out the full 30s timeout. It now commits before
+    any model runs.
+
+    Honest limit: this passes with that fix reverted, so it does not reproduce the
+    original failure. TestClient serves both requests through one pooled connection, so
+    they share a transaction instead of contending for the write lock the way two
+    requests against the real server do. It is kept as a smoke test of the property -
+    a concurrent write completes, and quickly - not as proof the bug cannot return.
+    Reproducing it needs two processes against the same file.
+    """
+    import threading
+    import time as _time
+
+    from backend import vision as vision_module
+
+    started = threading.Event()
+    release = threading.Event()
+
+    def slow_analyse(paths, indices=None, **_kw):
+        started.set()
+        release.wait(timeout=20)       # stand in for a model taking its time
+        return []
+
+    monkeypatch.setattr(vision_module, "analyse_pages", slow_analyse)
+
+    other = client.post("/api/projects", json={"title": "Bystander"}).json()["id"]
+    project_id = client.post("/api/projects", json={"title": "Slow"}).json()["id"]
+    files = [("files", (p.name, p.read_bytes(), "image/png")) for p in artwork]
+    assert client.post(f"/api/projects/{project_id}/upload", files=files).status_code == 200
+
+    result: dict = {}
+
+    def run_analysis():
+        try:
+            result["status"] = client.post(
+                f"/api/projects/{project_id}/analyze", json={"use_vision": True}
+            ).status_code
+        except Exception as exc:                       # pragma: no cover - diagnostic
+            result["error"] = f"{type(exc).__name__}: {exc}"
+
+    worker = threading.Thread(target=run_analysis, daemon=True)
+    worker.start()
+    assert started.wait(timeout=30), "analysis never reached the model step"
+
+    # While it is held up in "the model", the rest of the app must still accept a write.
+    began = _time.perf_counter()
+    patched = client.patch(f"/api/projects/{other}", json={"title": "Renamed mid-analysis"})
+    took = _time.perf_counter() - began
+
+    release.set()
+    worker.join(timeout=60)
+
+    assert patched.status_code == 200, f"write blocked during analysis: {patched.text}"
+    assert took < 5.0, f"write waited {took:.1f}s on the analysis transaction"
+    assert client.get(f"/api/projects/{other}").json()["title"] == "Renamed mid-analysis"
+
+
+# --------------------------------------------------------------- selection
+
+
+def _insight(index, score):
+    from backend.vision import PageInsight
+
+    return PageInsight(page_index=index, kind="artwork", score=score)
+
+
+def test_selection_takes_a_continuous_run_not_the_best_scattered_panels():
+    """Shots from pages half a book apart are a gallery, not a sequence."""
+    from backend.vision import select_pages
+
+    # High scores at both ends, a solid run in the middle.
+    scores = [0.9, 0.1, 0.1, 0.5, 0.6, 0.55, 0.58, 0.1, 0.1, 0.95]
+    insights = [_insight(n, s) for n, s in enumerate(scores)]
+
+    chosen = select_pages(insights, wanted=4)
+    picked = [i.page_index for i in chosen]
+    assert picked == sorted(picked), "selection must stay in reading order"
+    assert max(picked) - min(picked) == len(picked) - 1, (
+        f"expected a continuous run, got {picked}"
+    )
+
+    # Ranking alone would have grabbed the two outliers and two of the middle.
+    scattered = [i.page_index for i in select_pages(insights, 4, continuous=False)]
+    assert 0 in scattered and 9 in scattered
+    assert 0 not in picked or 9 not in picked
+
+
+def test_selection_still_drops_pages_with_no_artwork():
+    from backend.vision import select_pages
+
+    insights = [_insight(0, 0.0), _insight(1, 0.0)] + [
+        _insight(n, 0.7) for n in range(2, 8)
+    ]
+    picked = [i.page_index for i in select_pages(insights, wanted=4)]
+    assert 0 not in picked and 1 not in picked
+
+
 # ----------------------------------------------------------------- routing
 
 
