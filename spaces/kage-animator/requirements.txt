@@ -1,0 +1,9 @@
+torch
+torchvision
+diffusers>=0.31
+transformers>=4.44
+accelerate>=0.33
+safetensors
+imageio-ffmpeg
+opencv-python-headless
+pillow

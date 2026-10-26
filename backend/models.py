@@ -103,6 +103,8 @@ class Shot(Base):
     subtitle_text: Mapped[str | None] = mapped_column(Text)
     #: Written at analysis time and stored, so rendering never waits on a model.
     narration_text: Mapped[str | None] = mapped_column(Text)
+    #: An animated clip of this panel, generated off-machine at analysis time.
+    clip_path: Mapped[str | None] = mapped_column(Text)
 
     project: Mapped[Project] = relationship(back_populates="shots")
 

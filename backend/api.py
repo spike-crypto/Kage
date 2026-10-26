@@ -154,6 +154,7 @@ def _shot_out(shot: Shot) -> ShotOut:
         music_intensity=shot.music_intensity,
         subtitle_text=shot.subtitle_text,
         narration_text=shot.narration_text,
+        clip_path=shot.clip_path,
         visual_effects=shot.visual_effects,
         audio_cues=shot.audio_cues,
     )
@@ -634,6 +635,35 @@ def analyze_project(project_id: int, payload: AnalyzeRequest,
             warnings.append(f"Narration skipped: {exc}")
             log.warning("Project %s narration unavailable: %s", project.id, exc)
 
+    # Animate the shots worth animating. Off-machine, slow and quota-limited, so this
+    # is deliberately a handful of hero shots rather than every panel - which is also how
+    # motion comics are actually made. Everything else gets depth parallax, and a shot
+    # whose clip fails keeps its still.
+    if payload.animate_shots:
+        from . import video_providers
+
+        wanted = max(0, min(int(payload.animate_shots), len(created)))
+        # Spread them through the film rather than clustering at the front.
+        order = sorted(created)
+        picks = [order[round(i * (len(order) - 1) / max(1, wanted - 1))]
+                 for i in range(wanted)] if wanted > 1 else order[:wanted]
+        animated = 0
+        for number in dict.fromkeys(picks):
+            row = created[number]
+            try:
+                clip = video_providers.animate_panel(
+                    Path(row.source_panel_path), project_id=project.id
+                )
+            except Exception as exc:
+                warnings.append(f"Shot {number} not animated: {exc}")
+                log.warning("Project %s shot %s not animated: %s", project.id, number, exc)
+                break   # one refusal means the quota is gone; do not burn the rest
+            row.clip_path = str(clip)
+            animated += 1
+        if animated:
+            warnings.append(f"Animated {animated} of {len(created)} shots.")
+        session.commit()
+
     # Depth for parallax, computed now and cached beside each panel, so the renderer
     # never waits on a model. This is what lets the artwork itself move.
     try:
@@ -723,6 +753,7 @@ def _run_render(project_id: int) -> None:
                         music_intensity=s.music_intensity,
                         subtitle=s.subtitle_text or "",
                         narration=s.narration_text or "",
+                        clip_path=Path(s.clip_path) if s.clip_path else None,
                     )
                     for s in shots
                 ],

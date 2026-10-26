@@ -55,7 +55,29 @@ Panels within a page are ordered right-to-left, which is correct for manga and w
 western comics. Nothing detects which a book is. Spread splitting makes the same
 assumption.
 
-## 4. Character motion
+## 4. More animation quota
+
+Image-to-video now works, via a ZeroGPU Space (`spaces/kage-animator/`, deployed at
+[viperlurk/kage-animator](https://huggingface.co/spaces/viperlurk/kage-animator)). A
+panel goes up, a 25-frame clip comes back, and the shot plays those frames under the same
+camera move, grade and effects as any other.
+
+Measured on a Junji Ito street panel: SVD generated a camera push down the alley with the
+buildings moving in correct perspective and the line-art style intact — frame-to-frame
+motion 26.9, first-to-last difference 49.0. Generated motion, not a warp.
+
+The limit is quota, not capability. A free ZeroGPU account refuses further calls once its
+small daily allowance is gone — instantly, with no message — so Kage animates a handful
+of hero shots and leaves depth parallax to carry the rest. Options, in order of appeal:
+
+- Reduce the reservation further. ZeroGPU charges the `@spaces.GPU(duration=...)`
+  reservation, not the time used; 75s is already down from 150s but a 10-step run may fit
+  in 45s.
+- A faster model. LTX-Video is built for speed and would cost less quota per clip, at the
+  cost of needing a text prompt — which the dialogue work in item 1 could supply.
+- HF PRO, which raises the ZeroGPU allowance.
+
+## 5. Character motion
 
 Parallax and drift move the artwork, but no character ever moves within a panel: no
 in-betweens, no redrawn cels. Real character animation needs image-to-video diffusion at
@@ -66,7 +88,7 @@ Providers bill through one router that returns 402 without credit.
 If a free or cheap image-to-video endpoint appears, it belongs in the existing
 `backend/providers.py` chain, not as a special case.
 
-## 5. Hosted voice
+## 6. Hosted voice
 
 The narrator is a local 139 MB model (`facebook/mms-tts-eng`, CC-BY-NC — non-commercial).
 It adds roughly 18s to a render and the licence blocks commercial use. A hosted option, or

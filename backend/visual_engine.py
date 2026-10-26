@@ -136,9 +136,16 @@ class ShotRenderer:
     #: rather than only moving a crop around it; see backend/animation.py.
     parallax: float = 0.0
     drift: float = 0.0
+    #: An animated clip of this panel. When present the shot is built from its frames
+    #: rather than from the still, and the camera move, grade and effects apply on top
+    #: exactly as before - so an animated shot still matches the film around it.
+    clip_path: Path | None = None
 
     def __post_init__(self) -> None:
-        self._source = self._load_source()
+        self._clip = self._load_clip()
+        self._source = (
+            self._clip[0] if self._clip is not None else self._load_source()
+        )
         self._path = build_camera_path(self.camera_motion, self.intensity)
         self._framing = self._effective_framing()
         self._anchor, self._centre_limits = self._analyse_ink()
@@ -209,6 +216,23 @@ class ShotRenderer:
         # gain simply lifts the blacks less, and paper is always paper.
         out = (arr.astype(np.float32) - float(hi)) * gain + WHITE_POINT
         return np.clip(out, 0, 255).astype(np.uint8)
+
+    def _load_clip(self) -> list[np.ndarray] | None:
+        """Decode an animated clip for this panel, if one was generated."""
+        if not self.clip_path:
+            return None
+        path = Path(self.clip_path)
+        if not path.is_file():
+            return None
+        capture = cv2.VideoCapture(str(path))
+        frames: list[np.ndarray] = []
+        while True:
+            ok, frame = capture.read()
+            if not ok:
+                break
+            frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        capture.release()
+        return frames or None
 
     def _load_source(self) -> np.ndarray:
         with Image.open(self.image_path) as raw:
@@ -654,6 +678,12 @@ class ShotRenderer:
 
         for i in range(total):
             t = i / float(total - 1) if total > 1 else 0.0
+            if self._clip is not None:
+                # The clip is short - 25 frames at 8fps - and the shot may be longer, so
+                # it is resampled across the shot rather than played once and frozen.
+                self._source = self._clip[
+                    min(len(self._clip) - 1, int(t * (len(self._clip) - 1)))
+                ]
             shake = self._shake_offset(t, i)
             x, y, rect_w, rect_h = self._crop_rect(t, shake)
 

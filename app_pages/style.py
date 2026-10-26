@@ -111,6 +111,25 @@ else:
     st.page_link("app_pages/settings.py", label="Add a provider key",
                  icon=":material/key:")
 
+st.space("small")
+st.subheader("Animation", divider=False)
+st.caption(
+    "Every shot gets depth parallax, which moves the artwork locally. A few shots can "
+    "also be sent to a GPU Space for true image-to-video - generated motion rather than "
+    "a warp. It is slow and quota-limited, so it is for the moments that matter."
+)
+animate_shots = st.slider(
+    "Hero shots to animate", 0, 6, 0,
+    help="0 keeps every shot on parallax. Each animated shot is one call to the "
+         "ZeroGPU Space and takes about a minute. A shot whose clip fails keeps its "
+         "still, so this never costs you the render.",
+)
+if animate_shots:
+    st.caption(
+        f"About {animate_shots} minute(s) added at analysis time. Free ZeroGPU has a "
+        "small daily allowance; when it runs out the remaining shots stay on parallax."
+    )
+
 with st.expander("Advanced", icon=":material/tune:"):
     subtitles = st.checkbox(
         "Burn in subtitles read from the page", value=bool(project["subtitles_enabled"]),
@@ -151,6 +170,8 @@ if st.button("Save and build the shot plan", type="primary", icon=":material/aut
         jobs.insert(0, "Reading every page")
     if write_narration:
         jobs.append("writing the narration")
+    if animate_shots:
+        jobs.append(f"animating {animate_shots} shot(s)")
     spinner = ", ".join(jobs) + "..."
     with st.spinner(spinner):
         try:
@@ -161,6 +182,7 @@ if st.button("Save and build the shot plan", type="primary", icon=":material/aut
                 "extract_subtitles": subtitles,
                 "use_vision": use_vision,
                 "write_narration": write_narration,
+                "animate_shots": int(animate_shots),
             }, timeout=900)
         except ApiError as exc:
             st.error(str(exc))

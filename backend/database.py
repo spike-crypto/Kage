@@ -80,6 +80,8 @@ def _migrate() -> None:
         shot_columns = {row[1] for row in conn.execute(text("PRAGMA table_info(shots)"))}
         if shot_columns and "narration_text" not in shot_columns:
             conn.execute(text("ALTER TABLE shots ADD COLUMN narration_text TEXT"))
+        if shot_columns and "clip_path" not in shot_columns:
+            conn.execute(text("ALTER TABLE shots ADD COLUMN clip_path TEXT"))
 
 
 @contextmanager

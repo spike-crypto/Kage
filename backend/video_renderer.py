@@ -53,6 +53,9 @@ class ShotSpec:
     music_intensity: str = "medium"
     subtitle: str = ""
     narration: str = ""   # spoken over this shot, written at analysis time
+    #: An animated clip of this panel, generated off-machine at analysis time. When set,
+    #: the shot plays these frames under the same camera move instead of a still.
+    clip_path: Path | None = None
 
 
 @dataclass
@@ -272,6 +275,7 @@ def iter_output_frames(spec: RenderSpec, entries: list[TimelineEntry], total_fra
     for i, entry in enumerate(entries):
         renderer = ShotRenderer(
             image_path=Path(entry.shot.image_path),
+            clip_path=entry.shot.clip_path,
             out_width=width,
             out_height=height,
             camera_motion=entry.shot.camera_motion,

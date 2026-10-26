@@ -66,6 +66,7 @@ table = pd.DataFrame([
         "Cut in": shot["transition_type"],
         "Effects": list(shot["visual_effects"]),
         "Sound": list(shot["audio_cues"]),
+        "Moving": bool(shot.get("clip_path")),
         "Narration": shot.get("narration_text") or "",
         "Subtitle": shot["subtitle_text"] or "",
     }
@@ -79,7 +80,7 @@ edited = st.data_editor(
     width="stretch",
     row_height=72,
     num_rows="fixed",
-    disabled=["Shot", "Page"],
+    disabled=["Shot", "Page", "Moving"],
     alt="The shot plan: one row per shot, with its length, camera move and effects.",
     column_config={
         "Shot": st.column_config.NumberColumn(width="small", help="Order in the film."),
@@ -103,6 +104,10 @@ edited = st.data_editor(
         "Sound": st.column_config.MultiselectColumn(
             options=SOUND_CUES, format_func=humanise,
             help="One-off sounds placed on this shot.",
+        ),
+        "Moving": st.column_config.CheckboxColumn(
+            width="small",
+            help="Generated image-to-video. Unticked shots use depth parallax.",
         ),
         "Narration": st.column_config.TextColumn(
             width="large",

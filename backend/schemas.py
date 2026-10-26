@@ -166,6 +166,7 @@ class AnalyzeRequest(BaseModel):
     extract_subtitles: bool = False
     use_vision: bool = True        # let the model choose which pages are worth filming
     write_narration: bool = False  # have a model watch the pages and write a voiceover
+    animate_shots: int = 0         # how many hero shots to send for image-to-video
 
 
 class ShotEdit(BaseModel):
@@ -216,6 +217,7 @@ class ShotOut(BaseModel):
     music_intensity: str
     subtitle_text: str | None
     narration_text: str | None = None
+    clip_path: str | None = None
     visual_effects: list[str]
     audio_cues: list[str]
 
