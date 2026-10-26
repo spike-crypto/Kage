@@ -340,6 +340,28 @@ def test_render_reports_missing_artwork_clearly(tmp_path):
 # ------------------------------------------------------------ api workflow
 
 
+def test_uploading_again_replaces_the_previous_import(client, artwork):
+    """Upload replaces rather than appends - the UI must not promise otherwise.
+
+    Sending a book in batches therefore destroys every batch but the last. Caught when a
+    42-page rebuild arrived as 15 pages, both on disk and in the database.
+    """
+    project_id = client.post("/api/projects", json={"title": "Replace"}).json()["id"]
+
+    first = [("files", (p.name, p.read_bytes(), "image/png")) for p in artwork[:2]]
+    assert client.post(f"/api/projects/{project_id}/upload", files=first).json()[
+        "page_count"] == 2
+
+    second = [("files", (artwork[2].name, artwork[2].read_bytes(), "image/png"))]
+    body = client.post(f"/api/projects/{project_id}/upload", files=second).json()
+    assert body["page_count"] == 1, "a second upload replaces the first"
+
+    detail = client.get(f"/api/projects/{project_id}").json()
+    pages = [p for p in detail["pages"] if p["kind"] == "page"]
+    assert len(pages) == 1, f"expected the import to be replaced, found {len(pages)} pages"
+    assert detail["page_count"] == len(pages), "page_count must match the rows that exist"
+
+
 # ------------------------------------------------------------- concurrency
 
 

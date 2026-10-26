@@ -30,11 +30,13 @@ uploaded = st.file_uploader(
     "PDF or page images",
     type=["pdf", "png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff"],
     accept_multiple_files=True,
-    help="Up to 80 MB and 80 pages. Uploading again adds to what is already here.",
+    help="Up to 80 MB and 80 pages in one go. Uploading REPLACES everything already "
+         "imported, so send a book in a single selection rather than in batches.",
 )
 st.caption(
     "Scans of a book are cleaned up on the way in: the camera background and margins are "
-    "trimmed off, and a two-page spread becomes two pages."
+    "trimmed off, and a two-page spread becomes two pages. Select every page at once - a "
+    "second upload replaces the first rather than adding to it."
 )
 
 sample_files = sorted(SAMPLE_DIR.glob("sample_page_*.png")) if SAMPLE_DIR.exists() else []
