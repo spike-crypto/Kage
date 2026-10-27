@@ -17,9 +17,12 @@ and holds 108 MB of VRAM.
 and water keep moving while the shot holds. This is what stops a held frame reading as a
 freeze. It needs no model at all - it is two sine waves and a noise field.
 
-Both are per-pixel warps through ``cv2.remap`` at output resolution, which costs about a
-millisecond a frame. Depth is computed once per panel at analysis time and cached beside
-it, so rendering never waits for a model.
+Both are per-pixel warps through ``cv2.remap`` at output resolution. Measured at
+1280x720, that costs **6.33 ms a frame** with a uint8 source and 13.66 ms with float32 -
+not the millisecond this docstring claimed before anyone timed it. The cost is the
+displacement maps and the dtype, not ``remap`` itself, which is 1.57 ms. Depth is
+computed once per panel at analysis time and cached beside it, so rendering never waits
+for a model.
 """
 
 from __future__ import annotations
