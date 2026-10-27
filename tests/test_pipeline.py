@@ -780,3 +780,117 @@ def test_vision_insight_fields_are_sane(artwork):
     assert 0.0 <= insight.energy <= 1.0
     assert 0.0 <= insight.score <= 1.0
     assert insight.describe()
+
+
+def test_uint8_overlay_blend_matches_float_arithmetic():
+    """The fast overlay path must be the same picture, not merely a similar one.
+
+    The four overlay effects (speed lines, particles, rain, impact flash) used to blend
+    toward a flat colour in float32, which promoted the whole frame and dragged the
+    grade, vignette and grain onto their slow paths with it. They now do the same
+    arithmetic in uint8. This pins the two against each other so a future change to
+    _blend_to_colour cannot quietly alter the output.
+    """
+    rng = np.random.default_rng(3)
+    for colour in (255.0, 242.0, 226.0):
+        frame = rng.integers(0, 256, (64, 96, 3), dtype=np.uint8)
+        alpha = rng.integers(0, 118, (64, 96), dtype=np.uint8)
+
+        fast = ShotRenderer._blend_to_colour(frame, alpha, colour)
+        reference = ShotRenderer._blend_to_colour(frame.astype(np.float32), alpha, colour)
+        reference = np.clip(reference, 0, 255).astype(np.uint8)
+
+        assert fast.dtype == np.uint8
+        assert fast.shape == frame.shape
+        # One level of rounding is expected; anything more is a behaviour change.
+        assert np.abs(fast.astype(np.int16) - reference.astype(np.int16)).max() <= 1
+
+
+def test_overlay_effects_no_longer_force_float_promotion():
+    """A speed-lines shot should stay in uint8 end to end.
+
+    One effect promoting the frame is enough to put every effect after it on a float
+    path, so this guards the flag rather than the arithmetic.
+    """
+    panel = Path("data/projects/project_00116/panels/panel_p006_000.png")
+    if not panel.exists():
+        pytest.skip("no sample panel available")
+
+    renderer = ShotRenderer(
+        image_path=str(panel), out_width=320, out_height=180,
+        camera_motion="push_in",
+        effects=["speed_lines", "grain", "impact_flash"],
+        intensity="normal", fps=12, seed=7,
+    )
+    assert renderer._float_effects is False
+    for frame in renderer.iter_frames(0.5):
+        assert frame.dtype == np.uint8
+
+
+def test_bloom_stays_in_uint8_and_grade_returns_uint8():
+    """Bloom used to promote the whole frame to float32 and back.
+
+    The highlight threshold is a saturating subtract and the recombine is an
+    addWeighted, both exact in 8-bit, so a graded frame should never leave uint8 unless
+    one of the legacy colour effects is asked for.
+    """
+    from backend.styles import STYLE_PRESETS
+
+    grade = STYLE_PRESETS["shonen_kinetic"].grade
+    assert grade.bloom > 0.01, "preset no longer exercises the bloom path"
+
+    panel = Path("data/projects/project_00116/panels/panel_p006_000.png")
+    if not panel.exists():
+        pytest.skip("no sample panel available")
+
+    renderer = ShotRenderer(
+        image_path=str(panel), out_width=320, out_height=180,
+        camera_motion="push_in", effects=[], intensity="normal",
+        fps=12, seed=7, grade=grade,
+    )
+    assert renderer._float_effects is False
+    graded = renderer._apply_grade(
+        np.full((180, 320, 3), 200, dtype=np.uint8)
+    )
+    assert graded.dtype == np.uint8
+
+    # A legacy colour effect is the one case that still needs the headroom.
+    colour = ShotRenderer(
+        image_path=str(panel), out_width=320, out_height=180,
+        camera_motion="push_in", effects=["desaturate"], intensity="normal",
+        fps=12, seed=7, grade=grade,
+    )
+    assert colour._colour_effects == ["desaturate"]
+    assert colour._apply_grade(np.full((180, 320, 3), 200, dtype=np.uint8)).dtype == np.uint8
+
+
+def test_warp_maps_reuse_buffers_without_changing_them():
+    """maps_at returns scratch buffers; the values must still be right.
+
+    It builds base + depth * a + drift * b with cv2 into reused arrays instead of
+    accumulating onto freshly allocated zeros. Same arithmetic, two passes instead of
+    six, no per-frame allocation.
+    """
+    from backend.animation import Warp
+
+    h, w = 120, 160
+    depth = np.random.default_rng(11).random((h, w)).astype(np.float32)
+    warp = Warp(w, h, depth, parallax=0.034, drift=0.006, seed=7)
+    assert warp.active
+
+    travel = (0.6, -0.3)
+    map_x, map_y = warp.maps_at(0.25, travel)
+
+    # The identity grid plus a displacement: every coordinate should sit near its own
+    # pixel, not somewhere arbitrary.
+    base_x = np.tile(np.arange(w, dtype=np.float32), (h, 1))
+    assert np.abs(map_x - base_x).max() < 0.034 * w * 2.0
+    assert map_x.dtype == np.float32 and map_y.dtype == np.float32
+
+    # Buffers are reused, so a later call must overwrite rather than accumulate.
+    again_x, again_y = warp.maps_at(0.25, travel)
+    assert np.abs(again_x - map_x).max() == 0.0
+    assert np.abs(again_y - map_y).max() == 0.0
+
+    moved_x, _ = warp.maps_at(0.75, travel)
+    assert np.abs(moved_x - base_x).max() > 0.0

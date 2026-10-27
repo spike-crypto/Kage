@@ -210,31 +210,60 @@ class Warp:
         else:
             self._drift_x = self._drift_y = None
 
+        #: Scratch for maps_at, so a 20-minute render does not allocate two
+        #: full-resolution float32 arrays 28,800 times.
+        self._map_x = np.empty((height, width), dtype=np.float32)
+        self._map_y = np.empty((height, width), dtype=np.float32)
+
     @property
     def active(self) -> bool:
         return self._depth is not None or self._drift_x is not None
 
     def maps_at(self, t: float, travel: tuple[float, float]) -> tuple[np.ndarray, np.ndarray]:
-        """Remap grids for moment ``t`` (0..1). ``travel`` is the camera's own direction."""
-        dx = np.zeros((self.height, self.width), dtype=np.float32)
-        dy = np.zeros((self.height, self.width), dtype=np.float32)
+        """Remap grids for moment ``t`` (0..1). ``travel`` is the camera's own direction.
 
-        if self._depth is not None:
+        Only the scalars change from frame to frame - the depth and drift fields are
+        fixed for the whole shot - so each map is just
+        ``base + depth * a + drift * b``. Written as accumulating adds onto a pair of
+        zero arrays that was six full-resolution float32 passes and two allocations per
+        frame; as two cv2 calls into reused buffers it is one or two. At 1280x720 that
+        was the single largest remaining cost in the renderer after the grade.
+
+        The returned arrays are scratch buffers reused on every call, so use them
+        before calling this again. ``apply`` hands them straight to ``cv2.remap``,
+        which is the only caller.
+        """
+        depth, drift_x = self._depth, self._drift_x
+
+        if depth is not None:
             # Parallax is driven by where the camera has got to, so the two agree: near
             # pixels lag behind the move, which is exactly what depth looks like.
             amount = self.parallax * self.width
             swing = (t - 0.5) * 2.0
-            dx += self._depth * (travel[0] * amount + swing * amount * 0.35)
-            dy += self._depth * (travel[1] * amount * 0.6)
+            ax = travel[0] * amount + swing * amount * 0.35
+            ay = travel[1] * amount * 0.6
 
-        if self._drift_x is not None:
+        if drift_x is not None:
             # Two incommensurate frequencies, so the loop never visibly repeats.
             amount = self.drift * self.width
             phase = t * 2.0 * math.pi
-            dx += self._drift_x * amount * math.sin(phase * 0.7 + self.seed)
-            dy += self._drift_y * amount * math.sin(phase * 1.1 + self.seed * 0.5)
+            bx = amount * math.sin(phase * 0.7 + self.seed)
+            by = amount * math.sin(phase * 1.1 + self.seed * 0.5)
 
-        return self._base_x + dx, self._base_y + dy
+        if depth is not None and drift_x is not None:
+            # depth * a + drift * b, then + base.
+            cv2.addWeighted(depth, ax, drift_x, bx, 0.0, dst=self._map_x)
+            cv2.add(self._map_x, self._base_x, dst=self._map_x)
+            cv2.addWeighted(depth, ay, self._drift_y, by, 0.0, dst=self._map_y)
+            cv2.add(self._map_y, self._base_y, dst=self._map_y)
+        elif depth is not None:
+            cv2.scaleAdd(depth, ax, self._base_x, dst=self._map_x)
+            cv2.scaleAdd(depth, ay, self._base_y, dst=self._map_y)
+        else:
+            cv2.scaleAdd(drift_x, bx, self._base_x, dst=self._map_x)
+            cv2.scaleAdd(self._drift_y, by, self._base_y, dst=self._map_y)
+
+        return self._map_x, self._map_y
 
     def apply(self, frame: np.ndarray, t: float,
               travel: tuple[float, float]) -> np.ndarray:

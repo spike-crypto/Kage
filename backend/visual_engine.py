@@ -168,12 +168,16 @@ class ShotRenderer:
             name for name in ("desaturate", "warm_glow", "cold_tint")
             if name in self.effects
         ]
-        self._float_effects = bool(
-            self._colour_effects
-            or self._grade.bloom > 0.01
-            or {"motion_blur", "speed_lines", "particles", "rain", "impact_flash"}
-            & set(self.effects)
-        )
+        #: Whether iter_frames must promote the frame to float32 before the grade.
+        #:
+        #: Motion blur is the only thing in that block, so it is the only thing that can
+        #: justify the promotion. Bloom and the legacy colour effects were listed here
+        #: too, which was pure waste: _apply_grade does its own promotion for them and
+        #: converts back before returning, so naming them here bought a float32 cast
+        #: (2.6 ms at 1280x720) immediately undone by a clip-and-cast back to uint8
+        #: (4.1 ms) at the top of the grade. Every shonen_kinetic shot paid 6.7 ms a
+        #: frame for that round trip, because that preset carries bloom=0.06.
+        self._float_effects = "motion_blur" in self.effects
         self._speed_lines = self._make_speed_lines() if "speed_lines" in self.effects else None
         self._particles = self._make_particles() if "particles" in self.effects else None
         self._rain = self._make_rain() if "rain" in self.effects else None
@@ -584,24 +588,32 @@ class ShotRenderer:
                                  cv2.COLOR_GRAY2RGB)
             frame = cv2.addWeighted(frame, saturation, gray3, 1.0 - saturation, 0.0)
 
-        if not (g.bloom > 0.01 or self._colour_effects):
-            return frame            # the common case never leaves 8-bit
-        # Bloom and the legacy colour effects need headroom, so this block works in
-        # float - but it converts back before returning. Letting float leak out of here
-        # made the vignette and the grain full-frame float ops, which together cost more
-        # than the bloom they were paying for.
-        frame = frame.astype(np.float32)
-
         if g.bloom > 0.01:
-            # Glow only the highlights, computed at quarter resolution. A soft bloom loses
-            # nothing visible at that scale and costs about a sixteenth of a full-size blur.
+            # Glow only the highlights, computed at quarter resolution. A soft bloom
+            # loses nothing visible at that scale and costs about a sixteenth of a
+            # full-size blur.
+            #
+            # All of this is exact in 8-bit. The highlight threshold used to be
+            # np.clip(small - 165.0, 0, None) on a float32 frame; cv2.subtract
+            # saturates at zero, which is the same operation without the promotion, and
+            # addWeighted saturates at 255 where the float version relied on the clip
+            # on the way out. Doing it in float cost a round trip through float32 for
+            # the whole frame - the single most expensive thing in the renderer.
             h, w = frame.shape[:2]
             small = cv2.resize(frame, (max(4, w // 4), max(4, h // 4)),
                                interpolation=cv2.INTER_AREA)
-            highlights = np.clip(small - 165.0, 0.0, None)
+            highlights = cv2.subtract(small, (165.0, 165.0, 165.0, 0.0))
             blur = cv2.GaussianBlur(highlights, (0, 0), 3.4)
-            frame = frame + cv2.resize(blur, (w, h),
-                                       interpolation=cv2.INTER_LINEAR) * (g.bloom * 1.6)
+            up = cv2.resize(blur, (w, h), interpolation=cv2.INTER_LINEAR)
+            frame = cv2.addWeighted(frame, 1.0, up, g.bloom * 1.6, 0.0)
+
+        if not self._colour_effects:
+            return frame            # the common case never leaves 8-bit
+
+        # The legacy named effects still want the headroom, so they alone promote - and
+        # this converts back before returning, so float never leaks into the vignette
+        # and grain downstream.
+        frame = frame.astype(np.float32)
 
         # Legacy named effects, still available from the shot planner.
         if "desaturate" in self.effects:
@@ -637,6 +649,27 @@ class ShotRenderer:
         blurred = cv2.filter2D(frame, -1, kernel)
         return frame * (1.0 - 0.55 * strength) + blurred * (0.55 * strength)
 
+    @staticmethod
+    def _blend_to_colour(frame: np.ndarray, alpha: np.ndarray, colour: float) -> np.ndarray:
+        """``frame * (1 - a) + colour * a``, where ``a = alpha / 255``.
+
+        Every overlay effect here is a blend toward one flat colour, so they share this.
+        ``alpha`` is a single-channel uint8 mask; 255 means fully ``colour``.
+
+        The uint8 path is the same arithmetic as the float one, done in two saturating
+        cv2 calls instead of a broadcast over three float32 planes. It is several times
+        faster at 1280x720, and it keeps the frame in uint8 so the grade, vignette and
+        grain downstream stay on their fast paths too.
+        """
+        if frame.dtype != np.uint8:
+            a = alpha.astype(np.float32)[:, :, None] / 255.0
+            return frame * (1.0 - a) + float(colour) * a
+        a3 = cv2.cvtColor(alpha, cv2.COLOR_GRAY2BGR)
+        base = cv2.multiply(frame, cv2.bitwise_not(a3), scale=1.0 / 255.0)
+        # colour * a / 255; when colour is 255 that is just a, so skip the multiply.
+        tint = a3 if colour >= 255.0 else cv2.convertScaleAbs(a3, alpha=colour / 255.0)
+        return cv2.add(base, tint)
+
     def _apply_speed_lines(self, frame: np.ndarray, t: float) -> np.ndarray:
         if self._speed_lines is None:
             return frame
@@ -650,14 +683,14 @@ class ShotRenderer:
         crop = layer[y0 : y0 + ch, x0 : x0 + cw]
         resized = cv2.resize(crop, (self.out_width, self.out_height), interpolation=cv2.INTER_LINEAR)
         swell = math.sin(math.pi * min(1.0, t * 1.35)) ** 1.5
-        alpha = (resized.astype(np.float32) / 255.0) * (0.10 + 0.26 * swell)
-        alpha = np.clip(alpha, 0.0, 0.46)[:, :, None]
-        return frame * (1.0 - alpha) + 255.0 * alpha
+        alpha = cv2.convertScaleAbs(resized, alpha=0.10 + 0.26 * swell)
+        np.minimum(alpha, 117, out=alpha)        # the old clip at 0.46
+        return self._blend_to_colour(frame, alpha, 255.0)
 
     def _apply_particles(self, frame: np.ndarray, t: float, duration: float) -> np.ndarray:
         if self._particles is None:
             return frame
-        overlay = np.zeros((self.out_height, self.out_width), dtype=np.float32)
+        overlay = np.zeros((self.out_height, self.out_width), dtype=np.uint8)
         elapsed = t * duration
         for px, py, speed, radius, phase, opacity in self._particles:
             y = (py - speed * elapsed * 0.25) % 1.0
@@ -666,28 +699,29 @@ class ShotRenderer:
                 overlay,
                 (int(x * self.out_width), int(y * self.out_height)),
                 max(1, int(radius)),
-                float(opacity),
+                float(opacity) * 255.0,
                 -1,
                 cv2.LINE_AA,
             )
         overlay = cv2.GaussianBlur(overlay, (0, 0), 1.8)
-        alpha = np.clip(overlay, 0.0, 0.42)[:, :, None]
-        return frame * (1.0 - alpha) + 242.0 * alpha
+        np.minimum(overlay, 107, out=overlay)    # the old clip at 0.42
+        return self._blend_to_colour(frame, overlay, 242.0)
 
     def _apply_rain(self, frame: np.ndarray, t: float, duration: float) -> np.ndarray:
         if self._rain is None:
             return frame
-        overlay = np.zeros((self.out_height, self.out_width), dtype=np.float32)
+        overlay = np.zeros((self.out_height, self.out_width), dtype=np.uint8)
         elapsed = t * duration
         for px, py, speed, length, opacity in self._rain:
             y = (py + speed * elapsed) % 1.15
             x = (px + 0.04 * y) % 1.0
             x0 = int(x * self.out_width)
             y0 = int(y * self.out_height) - int(length)
-            cv2.line(overlay, (x0 - 3, y0), (int(x0), int(y0 + length)), float(opacity), 1, cv2.LINE_AA)
+            cv2.line(overlay, (x0 - 3, y0), (int(x0), int(y0 + length)),
+                     float(opacity) * 255.0, 1, cv2.LINE_AA)
         overlay = cv2.GaussianBlur(overlay, (0, 0), 0.8)
-        alpha = np.clip(overlay, 0.0, 0.32)[:, :, None]
-        return frame * (1.0 - alpha) + 226.0 * alpha
+        np.minimum(overlay, 81, out=overlay)     # the old clip at 0.32
+        return self._blend_to_colour(frame, overlay, 226.0)
 
     def _apply_impact_flash(self, frame: np.ndarray, t: float, duration: float) -> np.ndarray:
         if "impact_flash" not in self.effects:
@@ -698,6 +732,9 @@ class ShotRenderer:
             return frame
         k = (1.0 - elapsed / flash_len) ** 1.6
         amount = 0.52 * k * (1.15 if self.intensity == "dramatic" else 1.0)
+        if frame.dtype == np.uint8:
+            # Uniform alpha, so this is one scale-and-offset rather than a blend.
+            return cv2.convertScaleAbs(frame, alpha=1.0 - amount, beta=255.0 * amount)
         return frame * (1.0 - amount) + 255.0 * amount
 
     def _apply_grain(self, frame: np.ndarray, frame_index: int) -> np.ndarray:
