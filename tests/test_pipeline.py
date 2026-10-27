@@ -969,3 +969,24 @@ def test_an_untried_endpoint_does_not_displace_a_fast_proven_one(clean_routing):
     assert order[0] == "quick-and-sure", (
         "a proven endpoint faster than the unknown guess must not be displaced"
     )
+
+
+def test_the_test_run_is_not_using_the_real_database():
+    """Guard the isolation in tests/conftest.py.
+
+    If KAGE_DB stops being honoured, or conftest stops setting it before the first
+    backend import, every test in this file silently goes back to writing into the
+    user's own database. That is how 237 projects and a handful of fake routing
+    endpoints ended up in it. The failure is invisible unless something asserts on it.
+    """
+    from backend import config
+
+    assert config.DB_IS_OVERRIDDEN, (
+        "KAGE_DB is not in effect; tests are writing to the real database. "
+        "conftest.py must set it before anything imports backend."
+    )
+    assert config.DB_PATH != config.DATA_DIR / "kage.db"
+    assert config.DB_PATH.parent.exists()
+    assert config.DATA_DIR not in config.DB_PATH.parents, (
+        f"the test database sits inside the app's data directory: {config.DB_PATH}"
+    )

@@ -46,8 +46,19 @@ The before/after comparison the user wanted survived only as numbers. Build a ne
 for a public repo, caught only by a pre-push audit. `.gitignore` now excludes archives and
 common scan folders, but the habit is the real guard.
 
-**Tests share the developer's database.** A routing fixture called `reset()` with no
-argument and deleted real measurements. Scope test cleanup to the rows the test created.
+**Tests no longer share the developer's database — keep it that way.** They used to, and
+it cost three separate incidents: a routing fixture called `reset()` with no argument and
+deleted real measurements; a label used in a test but missing from the fixture's
+allow-list was never cleaned up and stayed in the live table as a fake endpoint; and the
+suite quietly accumulated 237 projects in the real database.
+
+`tests/conftest.py` now sets `KAGE_DB` to a temp file before the first `import backend`,
+which is the only moment it can work — `backend.config` reads it while importing, and
+`backend.database` builds its engine from the result. `test_the_test_run_is_not_using_the_real_database`
+asserts the isolation holds, because a regression here is otherwise silent.
+
+Scoping cleanup to the rows a test created is still good manners, but it is a discipline
+that has to be remembered every single time. A separate file has to be remembered once.
 
 ## Claims
 

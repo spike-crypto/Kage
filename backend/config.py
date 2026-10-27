@@ -52,6 +52,11 @@ def load_dotenv(path: Path | None = None, override: bool = False) -> dict[str, s
 
 DOTENV_VALUES = load_dotenv()
 
+
+def env(name: str, default: str | None = None) -> str | None:
+    """Read KAGE_<NAME>, falling back to the old MANGAMOTION_<NAME> spelling."""
+    return os.environ.get(f"KAGE_{name}") or os.environ.get(f"MANGAMOTION_{name}") or default
+
 DATA_DIR = BASE_DIR / "data"
 PROJECTS_DIR = DATA_DIR / "projects"
 ASSETS_DIR = BASE_DIR / "assets"
@@ -59,11 +64,29 @@ AUDIO_ASSETS_DIR = ASSETS_DIR / "audio"
 SFX_DIR = AUDIO_ASSETS_DIR / "sfx"
 EFFECTS_DIR = ASSETS_DIR / "effects"
 TOOLS_BIN = BASE_DIR / "tools" / "bin"
-DB_PATH = DATA_DIR / "kage.db"
 LEGACY_DB_PATH = DATA_DIR / "mangamotion.db"
+
+#: ``KAGE_DB`` points the app at a different SQLite file.
+#:
+#: The tests share a process with the real app and talk to the real database, which has
+#: bitten this project three times: a blanket ``routing.reset()`` wiped measurements the
+#: user had made, and a routing label missing from the fixture's list was never cleaned
+#: up and stayed in the live table as a fake endpoint. Scoping each test to its own
+#: labels is a discipline nobody can be relied on to keep; a separate file needs no
+#: discipline at all.
+#:
+#: Must be a path to a file, not ``:memory:`` - the app opens the database from several
+#: threads, and each connection to an in-memory database gets its own empty one.
+_DB_OVERRIDE = env("DB")
+DB_IS_OVERRIDDEN = bool(_DB_OVERRIDE)
+DB_PATH = (
+    Path(_DB_OVERRIDE).expanduser().resolve() if _DB_OVERRIDE else DATA_DIR / "kage.db"
+)
 
 for _d in (DATA_DIR, PROJECTS_DIR, ASSETS_DIR, AUDIO_ASSETS_DIR, SFX_DIR, EFFECTS_DIR):
     _d.mkdir(parents=True, exist_ok=True)
+if DB_IS_OVERRIDDEN:
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 # ---------------------------------------------------------------- render specs
 
@@ -227,14 +250,13 @@ def probe_capabilities() -> Capabilities:
     return caps
 
 
-def env(name: str, default: str | None = None) -> str | None:
-    """Read KAGE_<NAME>, falling back to the old MANGAMOTION_<NAME> spelling."""
-    return os.environ.get(f"KAGE_{name}") or os.environ.get(f"MANGAMOTION_{name}") or default
-
-
 def adopt_legacy_database() -> None:
-    """Carry projects over from the pre-rename database, once."""
-    if DB_PATH.exists() or not LEGACY_DB_PATH.exists():
+    """Carry projects over from the pre-rename database, once.
+
+    Skipped when KAGE_DB is set: somebody who asked for an empty database for a test
+    would not expect the app's old projects to appear in it.
+    """
+    if DB_IS_OVERRIDDEN or DB_PATH.exists() or not LEGACY_DB_PATH.exists():
         return
     try:
         shutil.copy2(LEGACY_DB_PATH, DB_PATH)
