@@ -98,7 +98,24 @@ Optional, offered in the app when first needed:
   - A free API key for AI narration
 '@ | Set-Content (Join-Path $stage "READ ME FIRST.txt") -Encoding UTF8
 
-# --- 6. report ---------------------------------------------------------------
+# --- 6. no state in the shipped build ----------------------------------------
+# Anything that smoke-tests the staged build writes data\ in place: a database, logs and
+# rendered output. Zipping after that shipped 20 MB of test render and a project users
+# would open and see as their own. The build is the app, never its state.
+$state = Join-Path $stage "data"
+if (Test-Path $state) {
+    $n = (Get-ChildItem $state -Recurse -File | Measure-Object).Count
+    Remove-Item $state -Recurse -Force
+    Write-Host "  removed $n file(s) of test state from the build" -ForegroundColor Yellow
+}
+Get-ChildItem $stage -Recurse -Directory -Filter "__pycache__" |
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+foreach ($leak in @(".env", ".cloudflared_token")) {
+    $path = Join-Path $stage $leak
+    if (Test-Path $path) { Remove-Item $path -Force; Write-Warning "  removed $leak" }
+}
+
+# --- 7. report ---------------------------------------------------------------
 $size = (Get-ChildItem $stage -Recurse -File | Measure-Object Length -Sum).Sum / 1MB
 Write-Host ("  built dist\Kage  ({0:N0} MB)" -f $size) -ForegroundColor Green
 

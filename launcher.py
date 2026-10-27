@@ -47,6 +47,17 @@ def _bind_children_to_this_process() -> object | None:
         from ctypes import wintypes
 
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        # Declare the signatures. Without them ctypes assumes every argument and return
+        # value is a C int, which truncates a 64-bit HANDLE: AssignProcessToJobObject
+        # then failed with ERROR_INVALID_HANDLE and this function still returned a job,
+        # so the protection looked present and did nothing.
+        kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+        kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+        kernel32.CreateJobObjectW.argtypes = [wintypes.LPVOID, wintypes.LPCWSTR]
+        kernel32.SetInformationJobObject.restype = wintypes.BOOL
+        kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
+        kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+
         job = kernel32.CreateJobObjectW(None, None)
         if not job:
             return None
@@ -90,7 +101,11 @@ def _bind_children_to_this_process() -> object | None:
             job, 9, ctypes.byref(info), ctypes.sizeof(info)
         ):
             return None
-        kernel32.AssignProcessToJobObject(job, kernel32.GetCurrentProcess())
+        if not kernel32.AssignProcessToJobObject(job, kernel32.GetCurrentProcess()):
+            # Say so rather than return a job that protects nothing.
+            print("  note: could not bind child processes to this window; closing it "
+                  "may leave the engine running", file=sys.stderr)
+            return None
         return job
     except Exception:
         return None
