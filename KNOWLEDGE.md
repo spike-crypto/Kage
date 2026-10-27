@@ -97,6 +97,59 @@ decision after Phase 4.
 |---|---|---|---|
 | Depth Anything V2 Small | ~1 s | 0.3 s | 108 MB |
 
+### 1.6 Animating hair by warping — why it cannot work (2026-10-27)
+
+Five attempts, on two panels, each rejected on sight by the person who asked for it.
+The measurements below are why, and they generalise past hair to any dense line work.
+
+**A warp cannot change a silhouette.** Displacing pixels inside a fixed shape moves the
+texture and leaves the outline where it was. Measured over a four-second clip, the
+hair's outline changed by **0.35–0.60%** of its area while the texture inside it changed
+by 51 grey levels. That gap is exactly what "the photo is wobbling" describes. Cutting
+the hair out as a layer and bending it took the outline change to **7.45%**.
+
+**Too much of the frame moving reads as the frame moving.** On a chapter-title splash
+page where hair covered 76.6% of the picture, **66% of the whole page** was displaced by
+more than 2 px, and it read as a wobble no matter what else was fixed. The same code on
+an ordinary panel moved **27%**, with the same outline change. Picking the most
+hair-dominated page in the volume as the test case — which is what asking CLIP for "the
+most hair" gets you — was itself the bug.
+
+**A spatial wave through the hair is not hair.** Optical flow on the output showed the
+motion reversing direction **2–3 times** between root and tip, with neighbouring pixels
+agreeing 0.993: a rubber sheet with a ripple in it. A lock of hair reverses **zero**
+times — all of it goes one way, the tip travels further and arrives later. Replacing
+1.6 spatial wave crests with a 0.15-cycle **time lag** took reversals to 0.17 and raised
+the outline change at the same time.
+
+**And then the hard limit.** Manga line art is binary ink on paper, not continuous tone.
+On this panel strands are 1–2 px wide with a **median 8 px gap**, so a large share of
+the hair is high-contrast edge. Displace it at all and edge pixels swing black to white:
+
+| sway | pixels blown out at some point |
+|---|---|
+| 12.5 px (1.56× strand spacing) | 19.5% of the panel |
+| 7.8 px | 16.4% |
+| 4.0 px (0.5× spacing) | 11.3% |
+
+There is no amplitude small enough to avoid it and large enough to see. **Warping cannot
+animate dense line art.** To move a drawn strand you have to redraw it, because a strand
+is a line, not a texture.
+
+**What the backdrop should be.** Step 4 of the plan assumes the region a moving layer
+uncovers must be inpainted. For hair that is wrong and expensive: behind moving hair in
+a dense mass is *more hair*, and the page already contains it. Inpainting it instead put
+flat white across the subject's jaw and erased her chin outline, because beside a face
+the only pixels to borrow from are skin. Using the original drawing untouched costs some
+silhouette change at the outer edge (7.57% rather than 10.21%) and removes the artifact
+completely.
+
+**Line art is drawn in both polarities.** Near the subject's head the hair is dark
+strokes on white paper; at the edges of the same drawing it flips to white strokes on
+black. Anything keyed on "ink is the dark pixels" works on half an image and fails on
+the other half. Gradient-based methods (structure tensors, the line-art model below) are
+unaffected.
+
 ---
 
 ## 2. Models for the anime work
@@ -107,17 +160,54 @@ Not yet integrated. Verified for licence, size and format.
 |---|---|---|---|
 | `skytnt/anime-seg` (`isnetis.onnx`) | character matting → alpha | 176 MB | Apache-2.0 |
 | `deepghs/anime_person_detection` | locate characters | 103 MB | MIT |
-| `deepghs/imgutils-models` (`lineart_anime.onnx`) | line extraction | 218 MB | MIT |
+| `deepghs/imgutils-models` (`lineart/lineart_anime.onnx`) | line extraction | **207 MB, run and verified** | MIT |
 | `dreMaz/AnimeInstanceSegmentation` | instance masks | — | MIT |
 
 **`onnxruntime` 1.31.0 is already in the shipped build**, pulled in by pymupdf. torch is
 not shipped. So the whole extraction stage runs CPU-only with no new dependency.
+
+
+### `lineart_anime.onnx` — verified working, with two traps (2026-10-27)
+
+Downloaded to `data/models` and run on CPU through the `onnxruntime` already in the
+build. On a manga panel it produces clean, continuous, flowing strand lines — far better
+than `cv2.adaptiveThreshold`, which breaks strokes wherever local contrast dips. This is
+the representation hair animation needs, and it costs no new dependency and no GPU.
+
+Two things will waste an afternoon if you do not know them:
+
+1. **Pad each side to a power of two.** It is a deep U-Net and its skip connections only
+   line up if every level halves exactly. Padding to a multiple of 8 fails with
+   `Non concat axis dimensions must match: Axis 2 has mismatched dimensions of 8 and 9`;
+   padding to 64 moves the same failure one level deeper onto axis 3. Resizing instead
+   of padding distorts line directions and should be avoided.
+2. **It emits lines LOW and paper HIGH.** Normalise and then invert, or every
+   `map > threshold` selects the paper. Thresholded the wrong way round it reported 41%
+   of the panel as "line" and traced the gaps between strands, which looks like the
+   model failing rather than the caller.
+
+Input shape is `[batch, 3, h, w]` float, output `[batch, 1, h, w]`.
+
+### Skeleton tracing is the open problem, not line extraction
+
+Turning that clean line art into strand curves is where it currently stops. A hand-rolled
+Zhang–Suen skeleton, cut at junctions and stitched back by direction continuity, keeps at
+best **53.9%** of the skeleton in fragments with a **median length of 23 px**, where real
+strands run for hundreds. Lines cross constantly in hair, and cutting at every crossing
+then guessing how to rejoin loses most of the drawing.
+
+This is consistent with the literature: AnimeInbet matches line *vertices* with a trained
+model rather than tracing, which is a strong hint that naive tracing does not hold up.
 
 ### Forbidden dependencies
 
 - **`ultralytics`** — AGPL-3.0, and requires `opencv-python>=4.7`, which collides with
   the repo's `opencv-python-headless` 5.0.0. Use ONNX directly.
 - **`scipy`** — not in the build. Rules out ARAP; use a coarse control lattice.
+
+Also absent, checked 2026-10-27: **`cv2.ximgproc`** (so no `thinning`), **`skimage`**,
+**`svgwrite`**, **`potrace`**. Thinning has to be written by hand. **`networkx` is
+present**, which helps if the tracer becomes a proper graph problem.
 
 ---
 
@@ -198,6 +288,11 @@ measured — is the thing to watch for.
 | README: "no GPU, no paid API, no model weights" | False on all three counts at the time. Rewritten. |
 | The shot table had a numpy-array bug | It did not. Cells are Python lists. The diagnosis was wrong. |
 | Mouths can be warped open | They cannot. `cv2.remap` rearranges existing pixels; an open mouth needs teeth and a cavity that a closed-mouth drawing does not contain. Blinks work (hiding information); mouths need drawn sprites. |
+| Masked drift would animate hair | It does not. It moves texture inside a fixed outline, which reads as a wobbling photograph. Four rounds of fixing masks, directions, fills and amplitudes changed nothing, because the model of the motion was wrong. |
+| There was an edge leak around the matte | There was not. The audit defined background as "matte below 40", so eroding the matte moved the measuring region into the hair and the number could not improve. Measured properly the original scored 19:1 and the "fix" 15:1 — the fix was worse than the thing it fixed. |
+| "Line work stays sharp, 96% retained" means the lines survive | It does not. That metric measures edge *energy*, which stays high while the edges move to the wrong places every frame. It passed on every version the user rejected. |
+| The white gash was the fill being poor | It was the fill existing at all. Behind moving hair is more hair, already on the page. |
+| The line-art model was unsuitable | It is excellent. The caller thresholded its output the wrong way round and traced the paper. |
 
 Two "regression tests" once passed with their fix reverted, and three others gave false
 passes because stale dev services held ports 8000 and 8501. Render and test on isolated
@@ -229,6 +324,21 @@ Mechanisms that will recur, not a changelog.
 - **A public repo will happily take copyrighted material.** 206 files / 93 MB of manga
   were nearly committed; caught in a pre-push audit. `.gitignore` now covers archives and
   sample manga directories.
+- **Never hold a child's stderr in a pipe you only drain at the end.** Writing frames to
+  ffmpeg while its stderr pipe fills up deadlocks both processes, and it looks exactly
+  like a slow render rather than a hang. Send stderr to a file, or add `-nostats`.
+- **libx264 with `yuv420p` needs even dimensions.** A 277-pixel-wide panel makes ffmpeg
+  exit immediately, and the first symptom is `OSError: [Errno 22]` on the pipe write,
+  which points at the wrong thing entirely.
+- **Flood-fill hole filling must start from a known background pixel.** Flooding from
+  image (0, 0) is wrong whenever the shape touches that corner — the fill then consumes
+  the shape and the inversion returns the whole image. Pad a one-pixel border first.
+- **Filling holes in a mask puts enclosed objects back.** Hair rings a head, so the face
+  is a hole in it; hole-filling reinstated the entire face as "hair". Subtract the
+  protected region again afterwards.
+- **A measurement region defined in terms of the thing being changed cannot detect a
+  change.** Twice this session a defect was an artifact of how it was measured, and both
+  times a control — a still video, the untouched drawing — was what caught it.
 
 ---
 
@@ -239,3 +349,8 @@ Mechanisms that will recur, not a changelog.
 - Does deforming screentone produce unacceptable crawl, and can flattening fix it?
 - How is character identity held across panels drawn at different angles?
 - Is "reads as anime" the right target, or is "animated manga" both honest and better?
+- Can line-art strands be traced through crossings well enough to animate? This is now
+  the single blocking question for hair, and the only one left between here and a strand
+  that moves without shimmering.
+- Does the same tracing problem appear on faces and clothing, or is hair the worst case
+  because its lines are densest?

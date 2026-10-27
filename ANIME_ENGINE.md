@@ -160,7 +160,11 @@ frame budget.
 
 ### Phase 3 — extraction (`backend/characters.py`)
 ONNX `anime-seg` → alpha matte per panel, cached beside the panel like depth already is.
-Background inpainting behind the character (`cv2.inpaint` to start). CPU fallback reusing
+Background inpainting behind the character (`cv2.inpaint` to start) — but note that
+for hair this turned out to be unnecessary and actively harmful: what sits behind moving
+hair is more hair, already on the page, and inpainting it put flat white across a
+subject's jaw and erased her chin outline. Reach for the original drawing before
+inventing anything. CPU fallback reusing
 the ink mask `_analyse_ink()` already computes and currently throws away.
 
 **Kill criterion:** if segmentation cannot clear roughly 0.7 IoU on real manga panels,
@@ -170,12 +174,34 @@ fail, and it should be allowed to fail cheaply.
 *Done when:* a real panel yields a clean character layer and a filled background.
 
 ### Phase 4 — the rig (`backend/rig.py`)
-A control-point mesh over the character layer; per-region displacement extending `Warp`
-from one global field to masked regions.
+
+**This phase was planned around displacing pixels, and that has now been shown not to
+work.** Five attempts at warping hair were each rejected on sight; the measurements are
+in `KNOWLEDGE.md` §1.6. The short version:
+
+- A warp moves texture inside a fixed outline. The silhouette changed 0.35–0.60% while
+  the texture inside changed 51 grey levels, which is what "the photo is wobbling"
+  describes.
+- Manga line art is binary ink on paper. Strands are 1–2 px wide with a median 8 px gap,
+  so most of the hair is high-contrast edge, and displacing it by *any* amount flips edge
+  pixels black to white. At half the strand spacing the motion is nearly invisible and
+  11.3% of the panel still blows out.
+
+So a rig cannot be a displacement field over line art. **A strand is a line, not a
+texture: to move it you redraw it.** The route is to extract the drawing as curves and
+re-render them each frame.
+
+`lineart_anime.onnx` (207 MB, MIT, CPU, no new dependency) does the extraction well and
+is verified working — see `KNOWLEDGE.md` §2 for the two traps. What is not solved is
+tracing that line art into strand curves: a hand-rolled skeleton tracer keeps 53.9% of
+the skeleton in 23 px fragments, because lines cross constantly and cutting at every
+crossing loses the drawing. **That tracer is the blocking problem for this phase.**
+
+Displacement still has uses where the thing being moved is a *region* rather than line
+work — a whole limb or head shifting, where the lines travel together and their spacing
+relative to each other does not change.
 
 **Not ARAP.** It needs scipy, which is not in the build and is not worth adding for this.
-A coarse 11×17 control lattice upscaled with `cv2.resize` INTER_CUBIC and fed to
-`cv2.remap` costs about 3.5 ms and is good enough to find out whether the idea works.
 
 **Mouths cannot be warped into existence.** `cv2.remap` rearranges pixels that already
 exist; an open mouth needs teeth, tongue and a dark cavity that are not in a closed-mouth
@@ -218,8 +244,11 @@ test that matters.
 
 - **Extraction on black-and-white line art is the real risk.** `anime-seg` is trained on
   coloured anime art; manga is screentone and hatching. Hence the kill criterion.
-- **Tone crawl.** Warping screentone sub-pixel makes it swim and moiré. Screentone
-  regions may need flattening before deformation, or excluding from it.
+- **Tone crawl — confirmed, and worse than this entry assumed.** It is not only
+  screentone and not only sub-pixel. Any displacement of any size over dense line work
+  flips edge pixels between ink and paper, because the drawing is binary rather than
+  continuous-tone. Measured in `KNOWLEDGE.md` §1.6. This is what rules out warping as a
+  way to animate drawn detail, and it is the single most important finding so far.
 - **It will look like Live2D, not Ghibli.** Puppet deformation has a ceiling. Accept it
   as the aesthetic or be disappointed.
 - **Character consistency across panels.** The same person drawn at different angles

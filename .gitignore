@@ -44,3 +44,7 @@ dist/
 # Project settings are deliberately NOT ignored: .claude/settings.json is shared
 # configuration and should be reviewable in a pull request if one is ever added.
 .claude/skills/
+
+# Brainstorming companion scratch. Holds copies of panel artwork, which must never
+# be committed - see the manga rules above.
+.superpowers/
