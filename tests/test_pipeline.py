@@ -894,3 +894,38 @@ def test_warp_maps_reuse_buffers_without_changing_them():
 
     moved_x, _ = warp.maps_at(0.75, travel)
     assert np.abs(moved_x - base_x).max() > 0.0
+
+
+def test_packaged_streamlit_floor_covers_what_the_pages_use():
+    """The shipped pin must not permit a Streamlit too old to run the app.
+
+    The floor was >=1.36 while the pages used st.space, st.pills and
+    st.segmented_control and config.toml set theme keys that did not exist then. The
+    build only ever worked because the resolver happened to pick a recent wheel; one
+    that picked an older one would have shipped a release that crashed on page load.
+    """
+    import streamlit as st
+    from packaging.requirements import Requirement
+    from packaging.version import Version
+
+    needed = ["space", "pills", "segmented_control", "navigation", "Page"]
+    for attr in needed:
+        assert hasattr(st, attr), f"app pages use st.{attr}, missing from installed Streamlit"
+
+    text = Path("packaging/requirements-core.txt").read_text(encoding="utf-8")
+    line = next(
+        raw.strip() for raw in text.splitlines()
+        if raw.strip() and not raw.strip().startswith("#")
+        and Requirement(raw.strip()).name == "streamlit"
+    )
+    floor = next(
+        Version(spec.version) for spec in Requirement(line).specifier if spec.operator == ">="
+    )
+
+    # Whatever we test against is the oldest thing we have any evidence works.
+    assert floor <= Version(st.__version__), (
+        f"pin floor {floor} is above the tested version {st.__version__}"
+    )
+    assert floor >= Version("1.66"), (
+        f"pin floor {floor} is below the version that introduced the APIs the pages use"
+    )

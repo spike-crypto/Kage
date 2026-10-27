@@ -8,7 +8,13 @@
 fastapi>=0.115
 uvicorn[standard]>=0.30
 python-multipart>=0.0.9
-streamlit>=1.36
+# 1.66 is a real floor, not a guess. The pages use st.space, st.pills,
+# st.segmented_control and keyword-only alt= on dataframes, images and charts, and
+# .streamlit/config.toml sets buttonRadius, headingFontSizes, showWidgetBorder and a
+# [theme.sidebar] section. None of that exists at the old >=1.36 floor: a rebuild whose
+# resolver picked an older wheel would have produced a release that crashed on page
+# load, and the only reason it never did is that it happened to pick 1.66.1 every time.
+streamlit>=1.66
 sqlalchemy>=2.0
 pydantic>=2.7
 pillow>=10.3
