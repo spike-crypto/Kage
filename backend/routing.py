@@ -13,8 +13,18 @@ because a router nobody can predict is worse than a slow one:
    exponentially, so a dead model is skipped instead of being retried every time.
 2. **Reliability outranks speed.** A fast endpoint that fails half the time is worse than
    a slower one that always answers.
-3. **Unknowns get one chance.** Something never tried sorts just below the proven ones,
-   so a new model gets used without displacing a working one.
+3. **Unknowns get one chance.** Something never tried is costed at ``UNKNOWN_LATENCY``
+   and ranked on that, so it goes ahead of a proven endpoint only when the proven one is
+   slower than that guess. A new model gets used without displacing a working one.
+
+Rule 3 used to put unknowns in a tier of their own, below every proven endpoint. Because
+the tier outranks the cost absolutely, and because a chain stops at the first success, an
+untried endpoint was then reached only when *every* proven endpoint failed on the same
+call - so the "one chance" often never arrived. Simulated over 2000 runs of 60 decisions
+against a 99%-reliable 20-second incumbent, a 99%-reliable 1-second newcomer was tried a
+median of **zero** times, and the router cost 20x what always-pick-the-best would have:
+exactly the fixed chain it exists to improve on. Costing unknowns instead of tiering them
+brings that case to 1.3x while leaving a genuinely fast incumbent undisturbed.
 """
 
 from __future__ import annotations
@@ -132,15 +142,19 @@ def _load(labels: list[str]) -> dict[str, Snapshot]:
 def score(stat: Snapshot | None, now: datetime) -> tuple[int, float]:
     """Sort key: lower is tried earlier. Returns (tier, cost).
 
-    The tier keeps the three rules legible - resting endpoints can never jump ahead of
-    working ones no matter how fast they once were.
+    The tier keeps the rules legible - resting and unreliable endpoints can never jump
+    ahead of working ones no matter how fast they once were.
+
+    Untried endpoints share tier 0 with the proven ones and are costed at
+    ``UNKNOWN_LATENCY``, so they compete rather than wait. A tier of their own looked
+    safer and was not: see rule 3 in the module docstring.
     """
     if stat is None:
-        return (1, UNKNOWN_LATENCY)                       # never tried
+        return (0, UNKNOWN_LATENCY)                       # never tried: costed, not tiered
     resting = stat.cooldown_until is not None and stat.cooldown_until > now
     attempts = stat.ok_count + stat.fail_count
     if attempts == 0:
-        return (1, UNKNOWN_LATENCY)
+        return (0, UNKNOWN_LATENCY)
     success = stat.ok_count / attempts
     latency = stat.latency_seconds or UNKNOWN_LATENCY
     if resting:

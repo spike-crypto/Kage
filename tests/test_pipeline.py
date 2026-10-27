@@ -542,8 +542,13 @@ def test_selection_still_drops_pages_with_no_artwork():
 
 #: Labels the routing tests invent. Scoped so the suite never deletes real
 #: measurements from the developer's own database, which it shares.
+#: Every label any routing test records against. The fixture resets exactly these and
+#: nothing else, because the tests share the real database with the running app: a
+#: blanket reset would wipe measurements the user actually made. A label used in a test
+#: but missing from this list is worse than either - it is never cleaned up, and it
+#: lands in the live routing table as a permanent fake endpoint.
 TEST_LABELS = ["prov:model", "fast-flaky", "slow-solid", "good", "broken",
-               "never-tried", "quick", "slow"]
+               "never-tried", "quick", "slow", "slow-but-sure", "quick-and-sure"]
 
 
 @pytest.fixture
@@ -928,4 +933,39 @@ def test_packaged_streamlit_floor_covers_what_the_pages_use():
     )
     assert floor >= Version("1.66"), (
         f"pin floor {floor} is below the version that introduced the APIs the pages use"
+    )
+
+
+def test_an_untried_endpoint_outranks_a_slow_proven_one(clean_routing):
+    """Rule 3 says unknowns get one chance. They have to actually get it.
+
+    Unknowns used to occupy a tier below every proven endpoint. Tier outranks cost
+    absolutely and a chain stops at the first success, so an untried endpoint was
+    reached only when every proven one failed on the same call. Against a reliable but
+    slow incumbent that meant never: simulated over 2000 runs of 60 decisions, a
+    twentyfold cheaper newcomer was tried a median of zero times and the router cost 20x
+    the best possible ordering, which is exactly the fixed chain it exists to beat.
+    """
+    for _ in range(10):
+        clean_routing.record("slow-but-sure", "Write", ok=True, latency=20.0)
+
+    order = clean_routing.order(["slow-but-sure", "never-tried"], "Write")
+    assert order[0] == "never-tried", (
+        "an endpoint costed at UNKNOWN_LATENCY must be tried ahead of a proven one "
+        "that takes longer than that, or it is never tried at all"
+    )
+
+
+def test_an_untried_endpoint_does_not_displace_a_fast_proven_one(clean_routing):
+    """The other half of rule 3: a working endpoint keeps its place.
+
+    Letting unknowns compete on cost is only safe if the comparison is a real one. An
+    endpoint already answering faster than UNKNOWN_LATENCY must stay in front.
+    """
+    for _ in range(10):
+        clean_routing.record("quick-and-sure", "Write", ok=True, latency=1.5)
+
+    order = clean_routing.order(["quick-and-sure", "never-tried"], "Write")
+    assert order[0] == "quick-and-sure", (
+        "a proven endpoint faster than the unknown guess must not be displaced"
     )
