@@ -34,3 +34,13 @@ sample_manga/
 
 # Packaged builds
 dist/
+
+# Locally installed agent skills. A SKILL.md is instructions an agent follows, so it is
+# not something to hand contributors without review - and a skill is usually about how
+# one person works, not about Kage. A backtesting-frameworks skill was installed here by
+# accident and would have shipped a quantitative-trading guide in a manga animation
+# repo. General-purpose skills belong in ~/.claude/skills/ instead.
+#
+# Project settings are deliberately NOT ignored: .claude/settings.json is shared
+# configuration and should be reviewable in a pull request if one is ever added.
+.claude/skills/
